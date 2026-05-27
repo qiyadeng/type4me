@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Type4Me — Development Guide
 
 ## Overview
@@ -20,6 +24,16 @@ swift build -c release
 ```
 
 The built binary is at `.build/release/Type4Me`. To package it as a `.app` bundle, see `scripts/deploy.sh`.
+
+## Testing
+
+```bash
+swift test                                 # run full Type4MeTests suite
+swift test --filter ASRProviderRegistryTests       # run a single test class
+swift test --filter ASRProviderRegistryTests.testCapabilitiesContainsSherpa   # run a single test method
+```
+
+Tests live in `Type4MeTests/` and target the `Type4Me` executable target declared in `Package.swift`. Per-provider protocol tests follow the pattern `<Provider>ProtocolTests.swift` / `<Provider>ASRConfigTests.swift`.
 
 ## Build Variants
 

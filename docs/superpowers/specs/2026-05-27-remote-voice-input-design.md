@@ -143,7 +143,7 @@ func resolve(frontmostBundleId, manualOverride) -> OutputSink:
 | AnyDesk | `com.anydesk.anydesk` |
 | TeamViewer | `com.teamviewer.TeamViewer` |
 | Apple 屏幕共享 | `com.apple.ScreenSharingViewer` |
-| ToDesk | `com.todesk.todesk-osx` |
+| ToDesk | `com.youqu.todesk.mac` |
 | RustDesk | `com.carriez.RustDesk` |
 
 **不内置**浏览器 bundle id:web 版 RDP 罕用,而浏览器是高频本机应用,会把所有 web 输入误路由到远程。

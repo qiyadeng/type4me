@@ -19,7 +19,7 @@ cd receiver && make build-windows
 ls -la dist/type4me-receiver-windows-amd64.exe
 ```
 
-预期看到 `dist/type4me-receiver-windows-amd64.exe`,大小约 5-7 MB。
+预期看到 `dist/type4me-receiver-windows-amd64.exe`,大小约 9 MB(纯 syscall,无外部依赖)。
 
 ### 2. scp 到 Windows 机器
 
@@ -75,6 +75,18 @@ curl -s -X POST http://<windows-host>:47318/inject \
 并且 Windows 这一头:
 - 系统剪贴板里有 `hello from mac`
 - Cmd+V(在 Windows 是 Ctrl+V)被发送,如果你在 Windows 上有任何焦点文本框,字会进去
+
+**关于 `reason:"no-focus"`**
+
+如果 Windows 上当前没有任何窗口聚焦(常见于刚启动 RDP/Parsec/Moonlight、
+画面切换瞬间、或锁屏后),`GetForegroundWindow` 返回 0,receiver 仍然会
+**执行 Ctrl+V**(因为部分 RDP 客户端窗口结构会让 API 返回 0 但实际能
+粘贴),但响应会带 `"reason":"no-focus"`。
+
+收到 `no-focus` 时:
+- 如果粘贴成功了 → 忽略 reason,正常使用
+- 如果粘贴没成功 → 点一下 Windows 上你想要落字的输入框,让它取得前台
+  焦点,然后再录一次
 
 ### 6. 真实场景:Mac Type4Me → Windows
 

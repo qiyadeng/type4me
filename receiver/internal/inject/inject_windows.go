@@ -34,6 +34,7 @@ var (
 	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
 
 	procGlobalAlloc   = kernel32.NewProc("GlobalAlloc")
+	procGlobalFree    = kernel32.NewProc("GlobalFree")
 	procGlobalLock    = kernel32.NewProc("GlobalLock")
 	procGlobalUnlock  = kernel32.NewProc("GlobalUnlock")
 	procRtlMoveMemory = kernel32.NewProc("RtlMoveMemory")
@@ -120,9 +121,10 @@ func setClipboardUTF16(s string) error {
 	procGlobalUnlock.Call(hMem)
 
 	if ret, _, _ := procSetClipboardData.Call(cfUnicodeText, hMem); ret == 0 {
-		// Ownership of hMem transfers to the system on success; on failure
-		// it would normally need GlobalFree, but single-shot inject means
-		// the leak is bounded by the receiver process lifetime.
+		// Ownership of hMem only transfers to the system on success. We
+		// must GlobalFree it on failure to avoid a slow leak in this
+		// long-running receiver daemon.
+		procGlobalFree.Call(hMem)
 		return errors.New("SetClipboardData failed")
 	}
 	return nil

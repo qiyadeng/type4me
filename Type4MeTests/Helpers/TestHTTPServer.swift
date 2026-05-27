@@ -43,15 +43,52 @@ final class TestHTTPServer: @unchecked Sendable {
 
     private func handle(_ conn: NWConnection) {
         conn.start(queue: .global())
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, _, _ in
-            guard let self, let data, let raw = String(data: data, encoding: .utf8) else {
+        readFullRequest(conn, accumulated: Data())
+    }
+
+    /// Accumulate reads until we have the full HTTP request (headers + Content-Length body bytes).
+    /// XCTest's process structure occasionally splits headers and body into separate TCP reads on
+    /// loopback, so a single `receive` is not enough.
+    private func readFullRequest(_ conn: NWConnection, accumulated: Data) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, _ in
+            guard let self else { conn.cancel(); return }
+            let buf = accumulated + (data ?? Data())
+            // Find end of headers
+            guard let raw = String(data: buf, encoding: .utf8) else {
                 conn.cancel(); return
             }
-            let req = self.parse(raw)
-            let resp = self.responder(req)
-            let respData = self.serialize(resp)
-            conn.send(content: respData, completion: .contentProcessed { _ in conn.cancel() })
+            guard let sepRange = raw.range(of: "\r\n\r\n") else {
+                if isComplete { self.respond(conn, raw: raw); return }
+                self.readFullRequest(conn, accumulated: buf)
+                return
+            }
+            let head = String(raw[..<sepRange.lowerBound])
+            let bodyStr = String(raw[sepRange.upperBound...])
+            let contentLength = self.contentLength(from: head)
+            if bodyStr.utf8.count >= contentLength || isComplete {
+                self.respond(conn, raw: raw)
+            } else {
+                self.readFullRequest(conn, accumulated: buf)
+            }
         }
+    }
+
+    private func contentLength(from head: String) -> Int {
+        for line in head.components(separatedBy: "\r\n") {
+            if line.lowercased().hasPrefix("content-length:") {
+                if let idx = line.firstIndex(of: ":") {
+                    return Int(line[line.index(after: idx)...].trimmingCharacters(in: .whitespaces)) ?? 0
+                }
+            }
+        }
+        return 0
+    }
+
+    private func respond(_ conn: NWConnection, raw: String) {
+        let req = self.parse(raw)
+        let resp = self.responder(req)
+        let respData = self.serialize(resp)
+        conn.send(content: respData, completion: .contentProcessed { _ in conn.cancel() })
     }
 
     private func parse(_ raw: String) -> Request {

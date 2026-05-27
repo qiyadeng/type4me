@@ -53,7 +53,13 @@ actor RecognitionSession {
     // MARK: - Dependencies
 
     private let audioEngine = AudioCaptureEngine()
-    private let outputSink: LocalTextSink = LocalTextSink()
+    private let localSink: LocalTextSink = LocalTextSink()
+    private var lockedSink: OutputSink?
+    private var fetchTargetsAndOverride: (@Sendable () async -> ([OutputTarget], OutputOverride))?
+
+    func setOutputRoutingFetcher(_ fetch: @escaping @Sendable () async -> ([OutputTarget], OutputOverride)) {
+        self.fetchTargetsAndOverride = fetch
+    }
     let historyStore = HistoryStore()
     private var asrClient: (any SpeechRecognizer)?
 
@@ -234,6 +240,19 @@ actor RecognitionSession {
 
         stoppedByMaxDuration = false
         targetBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+
+        // Lock the output sink at record-start, based on the frontmost app + user override.
+        // Mid-recording window changes do not re-route — the user's mental model is
+        // "I was looking at X when I started talking, text should land in X".
+        var snapshotTargets: [OutputTarget] = []
+        var snapshotOverride: OutputOverride = .auto
+        if let fetch = fetchTargetsAndOverride {
+            (snapshotTargets, snapshotOverride) = await fetch()
+        }
+        let router = OutputRouter(localSink: localSink, targetsProvider: { snapshotTargets })
+        self.lockedSink = router.resolve(frontmostBundleId: targetBundleId, override: snapshotOverride)
+        DebugFileLogger.log("startRecording: sink locked = \(type(of: self.lockedSink!))")
+
         let provider = KeychainService.selectedASRProvider
         activeProvider = provider
 
@@ -925,14 +944,15 @@ actor RecognitionSession {
 
             state = .injecting
             let defaults = UserDefaults.standard
-            outputSink.preserveClipboard = defaults.object(forKey: "tf_preserveClipboard") != nil
+            localSink.preserveClipboard = defaults.object(forKey: "tf_preserveClipboard") != nil
                 ? defaults.bool(forKey: "tf_preserveClipboard")
                 : true
 
             // Run injection on a detached task to avoid blocking the actor with usleep().
             // .finalized is emitted directly from the detached task so the UI updates
             // immediately after paste, without waiting for actor re-scheduling.
-            let engine = outputSink
+            let sink: OutputSink = lockedSink ?? localSink
+            let local = localSink  // captured separately for the LocalTextSink-specific copyToClipboard
             let aborted = injectionAborted
             let onEvent = self.onASREvent
             let injectLog = "stop: injecting method=clipboard len=\(finalText.count) +\(ContinuousClock.now - stopT0)"
@@ -940,12 +960,12 @@ actor RecognitionSession {
                 Task.detached {
                     let outcome: InjectionOutcome
                     if aborted {
-                        engine.copyToClipboard(finalText)
+                        local.copyToClipboard(finalText)
                         DebugFileLogger.log("stop: injection aborted by ESC, text saved to clipboard & history")
                         outcome = .copiedToClipboard
                     } else {
                         DebugFileLogger.log(injectLog)
-                        outcome = engine.inject(finalText)
+                        outcome = sink.inject(finalText)
                     }
                     // Notify UI immediately from this thread, before actor resumes
                     onEvent?(.finalized(text: finalText, injection: outcome))
@@ -954,11 +974,12 @@ actor RecognitionSession {
                     // When outcome is .copiedToClipboard (injection failed or ESC abort),
                     // keep the text in clipboard so user can manually paste.
                     if outcome == .inserted {
-                        engine.finishClipboardRestore()
+                        local.finishClipboardRestore()
                     }
                     continuation.resume(returning: outcome)
                 }
             }
+            self.lockedSink = nil  // reset so next recording starts fresh
 
             #if HAS_CLOUD_SUBSCRIPTION
             if isCloudMode {

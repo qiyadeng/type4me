@@ -104,6 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task {
+            await session.setOutputRoutingFetcher { @Sendable in
+                await MainActor.run { (appState.remoteTargets, appState.outputOverride) }
+            }
+        }
+
+        Task {
             await session.setOnASREvent { event in
                 Task { @MainActor in
                     switch event {

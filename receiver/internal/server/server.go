@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -89,9 +90,11 @@ func (s *Server) handleInject(w http.ResponseWriter, r *http.Request) {
 
 	out, err := s.opts.Injector.Inject(req.Text)
 	if err != nil {
+		log.Printf("/inject err: %v (text-len=%d req=%s)", err, len(req.Text), req.RequestID)
 		writeJSON(w, 500, map[string]string{"error": "platform_error", "detail": err.Error()})
 		return
 	}
+	log.Printf("/inject ok=%v reason=%q text-len=%d req=%s", out.Pasted, out.Reason, len(req.Text), req.RequestID)
 	writeJSON(w, 200, map[string]any{
 		"ok":         out.Pasted,
 		"request_id": req.RequestID,

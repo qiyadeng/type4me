@@ -547,6 +547,7 @@ actor RecognitionSession {
     }
 
     func stopRecording() async {
+        defer { self.lockedSink = nil }
         let myGeneration = sessionGeneration
         guard state == .recording else {
             logger.warning("stopRecording called but state is \(String(describing: self.state))")
@@ -1507,6 +1508,7 @@ actor RecognitionSession {
         currentConfig = nil
         uploadFailureFlag = nil
         lastStreamingError = nil
+        lockedSink = nil
         SystemVolumeManager.restore()
     }
 

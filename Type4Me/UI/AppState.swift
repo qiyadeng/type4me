@@ -810,6 +810,41 @@ final class AppState {
             onHidePanel?()
         }
     }
+
+    // MARK: - Remote output routing
+
+    /// All configured remote targets (loaded from credentials.json at init time).
+    /// Hand-edit credentials.json and call `reloadRemoteTargets()` to refresh.
+    var remoteTargets: [OutputTarget] = OutputTargetStore().load()
+
+    /// User's manual route override. Defaults to `.auto`.
+    /// Persisted to UserDefaults under "tf_output_override".
+    var outputOverride: OutputOverride = AppState.loadOverride() {
+        didSet { AppState.saveOverride(outputOverride) }
+    }
+
+    nonisolated private static func loadOverride() -> OutputOverride {
+        let raw = UserDefaults.standard.string(forKey: "tf_output_override") ?? "auto"
+        if raw == "auto" { return .auto }
+        if raw == "local" { return .local }
+        if raw.hasPrefix("remote:") { return .remote(String(raw.dropFirst("remote:".count))) }
+        return .auto
+    }
+
+    nonisolated private static func saveOverride(_ o: OutputOverride) {
+        let raw: String
+        switch o {
+        case .auto: raw = "auto"
+        case .local: raw = "local"
+        case .remote(let id): raw = "remote:\(id)"
+        }
+        UserDefaults.standard.set(raw, forKey: "tf_output_override")
+    }
+
+    /// Reload targets from disk (e.g., user hand-edited credentials.json).
+    func reloadRemoteTargets() {
+        remoteTargets = OutputTargetStore().load()
+    }
 }
 
 // MARK: - FloatingBarState Conformance

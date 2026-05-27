@@ -3,7 +3,7 @@ import Foundation
 /// OutputSink that pastes into the frontmost macOS app, using the existing
 /// TextInjectionEngine. This is a thin wrapper to allow the engine to be
 /// swapped for remote sinks at routing time.
-final class LocalTextSink: OutputSink {
+final class LocalTextSink: OutputSink, @unchecked Sendable {
     private let engine: TextInjectionEngine
 
     init(engine: TextInjectionEngine = TextInjectionEngine()) {

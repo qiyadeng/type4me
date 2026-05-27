@@ -1,6 +1,19 @@
 import Foundation
 import AppKit
 
+/// Thread-safe container for URLSession callback results.
+private final class ResultBox: @unchecked Sendable {
+    var value: (Data?, URLResponse?, Error?) = (nil, nil, nil)
+    let lock = NSLock()
+    func set(_ v: (Data?, URLResponse?, Error?)) {
+        lock.lock(); value = v; lock.unlock()
+    }
+    func get() -> (Data?, URLResponse?, Error?) {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+}
+
 /// OutputSink that posts text to a remote receiver over HTTP.
 ///
 /// Synchronous: blocks the calling thread for up to `timeout` seconds.
@@ -40,27 +53,30 @@ final class RemoteHTTPSink: OutputSink, @unchecked Sendable {
 
         // Synchronous bridge over URLSession's async API.
         let sem = DispatchSemaphore(value: 0)
-        var result: (Data?, URLResponse?, Error?) = (nil, nil, nil)
+        let resultBox = ResultBox()
         let task = session.dataTask(with: req) { data, resp, err in
-            result = (data, resp, err)
+            resultBox.set((data, resp, err))
             sem.signal()
         }
         task.resume()
         _ = sem.wait(timeout: .now() + timeout + 0.2)
         // If the semaphore timed out before URLSession finished, cancel the task so its
-        // callback won't continue mutating `result` after we return.
+        // callback won't continue mutating `resultBox` after we return.
+        let result = resultBox.get()
         if result.1 == nil && result.2 == nil {
             task.cancel()
+            // Re-read in case the callback signaled just after our check
         }
+        let finalResult = resultBox.get()
 
-        if result.2 != nil {
+        if finalResult.2 != nil {
             return copyToClipboardFallback(text)
         }
-        guard let http = result.1 as? HTTPURLResponse else {
+        guard let http = finalResult.1 as? HTTPURLResponse else {
             return copyToClipboardFallback(text)
         }
         if http.statusCode == 200,
-           let data = result.0,
+           let data = finalResult.0,
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            (obj["ok"] as? Bool) == true {
             return .inserted

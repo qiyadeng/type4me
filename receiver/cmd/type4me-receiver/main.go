@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -99,8 +100,12 @@ func printPairingInfo(cfg *config.Config, addr string) {
 	fmt.Printf("  Name:    %s\n", cfg.Name)
 	fmt.Printf("  Addr:    %s\n", addr)
 	fmt.Printf("  Token:   %s\n", cfg.Token)
+	urlHost := cfg.BindAddr
+	if urlHost == "0.0.0.0" || urlHost == "::" {
+		urlHost = "127.0.0.1"
+	}
 	fmt.Printf("  URL:     type4me://pair?host=%s&port=%d&token=%s&name=%s&platform=%s\n",
-		cfg.BindAddr, cfg.Port, cfg.Token, cfg.Name, runtime.GOOS)
+		urlHost, cfg.Port, cfg.Token, url.QueryEscape(cfg.Name), runtime.GOOS)
 	fmt.Println("==========================================================")
 	fmt.Println()
 }

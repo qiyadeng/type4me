@@ -81,6 +81,40 @@ func TestInjectOKReturns200(t *testing.T) {
 	if len(fake.Calls) != 1 || fake.Calls[0] != "hello" {
 		t.Errorf("inject not called as expected: %v", fake.Calls)
 	}
+	var respBody map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if respBody["ok"] != true {
+		t.Errorf("expected ok=true, got %v (full body: %+v)", respBody["ok"], respBody)
+	}
+}
+
+type failingFake struct{}
+
+func (f *failingFake) Inject(text string) (inject.Outcome, error) {
+	return inject.Outcome{Pasted: false, Reason: "no-focus"}, nil
+}
+func (f *failingFake) Ping() error { return nil }
+
+func TestInjectReportsFailureInBody(t *testing.T) {
+	ts, _ := newTestServer(t, &failingFake{}, "secret")
+	req, _ := http.NewRequest("POST", ts.URL+"/inject", strings.NewReader(`{"text":"x"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != false {
+		t.Errorf("expected ok=false when injector reports failure, got %v", body["ok"])
+	}
 }
 
 func TestInjectTooLargeReturns413(t *testing.T) {

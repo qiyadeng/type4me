@@ -26,6 +26,12 @@ type macInjector struct{}
 // NewPlatform returns the macOS platform injector.
 func NewPlatform() Injector { return &macInjector{} }
 
+// Inject sets the system pasteboard to `text` and posts a synthesized Cmd+V.
+//
+// TODO (S2): per spec § 5.4 the macOS injector should snapshot the user's
+// clipboard before paste and restore it ~150ms after the keystroke. Currently
+// the previous clipboard contents are permanently overwritten. Tracked for
+// S2 when the receiver also gains preserve_clipboard plumbing.
 func (m *macInjector) Inject(text string) (Outcome, error) {
 	if text == "" {
 		return Outcome{Pasted: false, Reason: "empty"}, nil

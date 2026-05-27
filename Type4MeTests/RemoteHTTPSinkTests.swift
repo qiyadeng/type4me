@@ -28,7 +28,11 @@ final class RemoteHTTPSinkTests: XCTestCase {
             XCTAssertEqual(req.path, "/inject")
             XCTAssertEqual(req.headers["Authorization"], "Bearer tok-123")
             XCTAssertEqual(req.headers["Content-Type"], "application/json")
-            XCTAssertTrue(req.body.contains("\"text\":\"你好\""))
+            guard let bodyData = req.body.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] else {
+                XCTFail("body not valid JSON: \(req.body)"); return TestHTTPResponse(status: 500, body: "")
+            }
+            XCTAssertEqual(parsed["text"] as? String, "你好")
             return TestHTTPResponse(status: 200,
                 body: #"{"ok":true,"outcome":{"pasted":true}}"#)
         }

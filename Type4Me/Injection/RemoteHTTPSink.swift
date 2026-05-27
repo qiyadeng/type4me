@@ -47,6 +47,11 @@ final class RemoteHTTPSink: OutputSink, @unchecked Sendable {
         }
         task.resume()
         _ = sem.wait(timeout: .now() + timeout + 0.2)
+        // If the semaphore timed out before URLSession finished, cancel the task so its
+        // callback won't continue mutating `result` after we return.
+        if result.1 == nil && result.2 == nil {
+            task.cancel()
+        }
 
         if result.2 != nil {
             return copyToClipboardFallback(text)

@@ -53,7 +53,7 @@ actor RecognitionSession {
     // MARK: - Dependencies
 
     private let audioEngine = AudioCaptureEngine()
-    private let injectionEngine = TextInjectionEngine()
+    private let outputSink: LocalTextSink = LocalTextSink()
     let historyStore = HistoryStore()
     private var asrClient: (any SpeechRecognizer)?
 
@@ -925,14 +925,14 @@ actor RecognitionSession {
 
             state = .injecting
             let defaults = UserDefaults.standard
-            injectionEngine.preserveClipboard = defaults.object(forKey: "tf_preserveClipboard") != nil
+            outputSink.preserveClipboard = defaults.object(forKey: "tf_preserveClipboard") != nil
                 ? defaults.bool(forKey: "tf_preserveClipboard")
                 : true
 
             // Run injection on a detached task to avoid blocking the actor with usleep().
             // .finalized is emitted directly from the detached task so the UI updates
             // immediately after paste, without waiting for actor re-scheduling.
-            let engine = injectionEngine
+            let engine = outputSink
             let aborted = injectionAborted
             let onEvent = self.onASREvent
             let injectLog = "stop: injecting method=clipboard len=\(finalText.count) +\(ContinuousClock.now - stopT0)"

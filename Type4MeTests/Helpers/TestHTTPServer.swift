@@ -3,7 +3,7 @@ import Network
 
 /// Minimal HTTP/1.1 server for in-process tests. Single-request lifecycle.
 /// Not RFC-compliant; just enough to assert headers/body and return canned responses.
-final class TestHTTPServer {
+final class TestHTTPServer: @unchecked Sendable {
     struct Request {
         let method: String
         let path: String
@@ -12,9 +12,9 @@ final class TestHTTPServer {
     }
     typealias Responder = (Request) -> TestHTTPResponse
 
-    private(set) var port: Int = 0
-    private var listener: NWListener?
-    private var responder: Responder = { _ in TestHTTPResponse(status: 500, body: "no responder") }
+    private(set) nonisolated(unsafe) var port: Int = 0
+    private nonisolated(unsafe) var listener: NWListener?
+    private nonisolated(unsafe) var responder: Responder = { _ in TestHTTPResponse(status: 500, body: "no responder") }
 
     func start() {
         let listener = try! NWListener(using: .tcp, on: .any)

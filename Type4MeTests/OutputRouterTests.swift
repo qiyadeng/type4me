@@ -68,9 +68,6 @@ final class OutputRouterTests: XCTestCase {
     }
 
     func testAutoFirstMatchWinsOnPriority() {
-        var alt = winTarget
-        alt.id = "win-alt"
-        // Wait — winTarget.id is `let`, can't reassign. Need to rebuild.
         let alt2 = OutputTarget(
             id: "win-alt", name: "Win-alt", host: "1.1.1.9", port: 47318,
             token: "t", matchBundleIds: ["com.microsoft.rdc.macos"], enabled: true

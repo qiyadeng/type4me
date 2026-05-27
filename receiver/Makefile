@@ -28,6 +28,10 @@ build-windows:
 
 test:
 	go test ./...
+	@echo "--- verifying windows cross-compile ---"
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go vet ./...
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/type4me-receiver
+	@echo "windows cross-compile OK"
 
 clean:
 	rm -rf $(DIST)

@@ -57,3 +57,75 @@ func TestSavePersistsNonSecretFields(t *testing.T) {
 		t.Errorf("Save didn't persist Name: got %q", cfg2.Name)
 	}
 }
+
+func TestLoadDefaultsToListenerMode(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgFile, []byte("{}"), 0600)
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != ModeListener {
+		t.Errorf("mode = %q, want listener", cfg.Mode)
+	}
+}
+
+func TestLoadRelaySubscriberRequiresFields(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgFile, []byte(`{"mode":"relay-subscriber"}`), 0600)
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Error("expected error for missing relay fields, got nil")
+	}
+}
+
+func TestLoadRelaySubscriberFromEnv(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgFile, []byte("{}"), 0600)
+	t.Setenv("TYPE4ME_MODE", "relay-subscriber")
+	t.Setenv("TYPE4ME_RELAY_URL", "https://relay.example.com")
+	t.Setenv("TYPE4ME_DEVICE_ID", "dev-Win")
+	t.Setenv("TYPE4ME_DEVICE_TOKEN", "tok-win")
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != ModeRelaySubscriber {
+		t.Errorf("mode = %q", cfg.Mode)
+	}
+	if cfg.RelayURL != "https://relay.example.com" || cfg.DeviceID != "dev-Win" {
+		t.Errorf("relay fields wrong: %+v", cfg)
+	}
+}
+
+func TestLoadListenerModeStillGeneratesToken(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgFile, []byte("{}"), 0600)
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != ModeListener {
+		t.Fatal("not listener mode")
+	}
+	if len(cfg.Token) < 32 {
+		t.Errorf("token len=%d", len(cfg.Token))
+	}
+}
+
+func TestLoadRelayModeDoesNotGenerateListenerToken(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgFile, []byte(`{"mode":"relay-subscriber","relay_url":"x","device_id":"y","device_token":"z"}`), 0600)
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "" {
+		t.Errorf("listener token should be empty in relay mode, got %q", cfg.Token)
+	}
+}

@@ -7,6 +7,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case models
     case vocabulary
     case modes
+    case remote
     case history
     case about
     #if HAS_CLOUD_SUBSCRIPTION
@@ -22,9 +23,9 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     static func tabs(for edition: AppEdition?) -> [SettingsTab] {
         switch edition {
         case .member:
-            return [.general, .modes, .vocabulary, .history, .about]
+            return [.general, .modes, .remote, .vocabulary, .history, .about]
         case .byoKey, .none:
-            return [.general, .models, .vocabulary, .modes, .history, .about]
+            return [.general, .models, .vocabulary, .modes, .remote, .history, .about]
         }
     }
     #endif
@@ -35,6 +36,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .models:      return L("模型", "Models")
         case .vocabulary:  return L("词汇", "Vocabulary")
         case .modes:       return L("模式", "Modes")
+        case .remote:      return L("远程", "Remote")
         case .history:     return L("历史", "History")
         case .about:       return L("关于", "About")
         #if HAS_CLOUD_SUBSCRIPTION
@@ -50,6 +52,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .models:      return L("语音识别与 LLM 引擎", "ASR & LLM engines")
         case .vocabulary:  return L("热词与片段替换", "Hotwords & snippets")
         case .modes:       return L("推理与默认行为", "Processing & defaults")
+        case .remote:      return L("远程接收器与中继", "Remote receivers & relay")
         case .history:     return L("会话与日志保留", "Sessions & logs")
         case .about:       return L("版本、许可证与支持", "Version, license & support")
         #if HAS_CLOUD_SUBSCRIPTION
@@ -225,6 +228,7 @@ struct SettingsView: View {
             #endif
             tabPage(.vocabulary) { VocabularyTab() }
             fixedPage(.modes)    { ModesSettingsTab() }
+            tabPage(.remote)     { RemoteSettingsTab() }
             fixedPage(.history)  { HistoryTab(isActive: selectedTab == .history) }
             tabPage(.about)      { AboutTab() }
             #if HAS_CLOUD_SUBSCRIPTION

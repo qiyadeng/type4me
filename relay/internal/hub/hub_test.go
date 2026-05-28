@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func newTestHub(t *testing.T) *Hub {
@@ -147,5 +148,173 @@ func TestResolveDeviceByTokenUsesCache(t *testing.T) {
 	// Second lookup: cache should hit
 	if _, ok := h.cache.get(tok); !ok {
 		t.Errorf("cache should have entry after first resolve")
+	}
+}
+
+func TestSubscribeAndDispatch(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	mac, macTok, _ := h.AddDevice(acc.ID, "Mac", RoleEither)
+	win, _, _ := h.AddDevice(acc.ID, "Win", RoleEither)
+
+	ch, unsub := h.Subscribe(win.ID)
+	defer unsub()
+
+	msg, err := h.Dispatch(macTok, win.ID, "hello", "req-1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.ID == "" || msg.Text != "hello" {
+		t.Errorf("bad msg: %+v", msg)
+	}
+
+	select {
+	case got := <-ch:
+		if got.Text != "hello" || got.FromDevice != mac.ID {
+			t.Errorf("received wrong msg: %+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no message received within 1s")
+	}
+}
+
+func TestDispatchReceiverOffline(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	_, macTok, _ := h.AddDevice(acc.ID, "Mac", RoleEither)
+	win, _, _ := h.AddDevice(acc.ID, "Win", RoleEither)
+	// no Subscribe -> offline
+	_, err := h.Dispatch(macTok, win.ID, "x", "", false)
+	if !errors.Is(err, ErrReceiverOffline) {
+		t.Errorf("expected ErrReceiverOffline, got %v", err)
+	}
+}
+
+func TestDispatchCrossAccount(t *testing.T) {
+	h := newTestHub(t)
+	a, _ := h.AddAccount("A")
+	b, _ := h.AddAccount("B")
+	_, aTok, _ := h.AddDevice(a.ID, "MacA", RoleEither)
+	devB, _, _ := h.AddDevice(b.ID, "WinB", RoleEither)
+	ch, unsub := h.Subscribe(devB.ID)
+	defer unsub()
+	_, err := h.Dispatch(aTok, devB.ID, "x", "", false)
+	if !errors.Is(err, ErrCrossAccount) {
+		t.Errorf("expected ErrCrossAccount, got %v", err)
+	}
+	select {
+	case got := <-ch:
+		t.Errorf("cross-account dispatch leaked: %+v", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestDispatchTargetNotFound(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	_, macTok, _ := h.AddDevice(acc.ID, "Mac", RoleEither)
+	_, err := h.Dispatch(macTok, "dev-missing", "x", "", false)
+	if !errors.Is(err, ErrDeviceNotFound) {
+		t.Errorf("expected ErrDeviceNotFound, got %v", err)
+	}
+}
+
+func TestDispatchInvalidSenderToken(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	win, _, _ := h.AddDevice(acc.ID, "Win", RoleEither)
+	_, err := h.Dispatch("bogus-token", win.ID, "x", "", false)
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("expected ErrInvalidToken, got %v", err)
+	}
+}
+
+func TestDispatchBackpressure(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	_, macTok, _ := h.AddDevice(acc.ID, "Mac", RoleEither)
+	win, _, _ := h.AddDevice(acc.ID, "Win", RoleEither)
+	ch, unsub := h.Subscribe(win.ID)
+	defer unsub()
+	// Fill buffer (cap is 16) without reading
+	for i := 0; i < 16; i++ {
+		_, err := h.Dispatch(macTok, win.ID, "fill", "", false)
+		if err != nil {
+			t.Fatalf("fill %d: %v", i, err)
+		}
+	}
+	// 17th should backpressure
+	_, err := h.Dispatch(macTok, win.ID, "overflow", "", false)
+	if !errors.Is(err, ErrBackpressure) {
+		t.Errorf("expected ErrBackpressure, got %v", err)
+	}
+	_ = ch
+}
+
+func TestSubscribeReconnectClosesOldChannel(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	win, _, _ := h.AddDevice(acc.ID, "Win", RoleEither)
+	ch1, _ := h.Subscribe(win.ID)
+	ch2, unsub := h.Subscribe(win.ID)
+	defer unsub()
+	// ch1 must be closed
+	select {
+	case _, ok := <-ch1:
+		if ok {
+			t.Errorf("ch1 should be closed but got value")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("ch1 not closed in time")
+	}
+	_ = ch2
+}
+
+func TestSelfDispatchAllowed(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	dev, tok, _ := h.AddDevice(acc.ID, "Mac", RoleEither)
+	ch, unsub := h.Subscribe(dev.ID)
+	defer unsub()
+	_, err := h.Dispatch(tok, dev.ID, "echo", "", false)
+	if err != nil {
+		t.Fatalf("self-dispatch failed: %v", err)
+	}
+	select {
+	case got := <-ch:
+		if got.Text != "echo" {
+			t.Errorf("self-dispatch wrong text: %q", got.Text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("self-dispatch didn't deliver")
+	}
+}
+
+func TestConcurrentDispatch(t *testing.T) {
+	h := newTestHub(t)
+	acc, _ := h.AddAccount("Personal")
+	_, macTok, _ := h.AddDevice(acc.ID, "Mac", RoleEither)
+	win, _, _ := h.AddDevice(acc.ID, "Win", RoleEither)
+	ch, unsub := h.Subscribe(win.ID)
+	defer unsub()
+
+	const n = 10
+	errCh := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(idx int) {
+			_, err := h.Dispatch(macTok, win.ID, "msg", "", false)
+			errCh <- err
+		}(i)
+	}
+
+	count := 0
+	timeout := time.After(2 * time.Second)
+	for count < n {
+		select {
+		case <-ch:
+			count++
+		case <-timeout:
+			t.Fatalf("only %d/%d msgs delivered", count, n)
+		}
 	}
 }

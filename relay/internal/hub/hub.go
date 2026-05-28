@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"strings"
@@ -184,6 +185,112 @@ func (h *Hub) RotateDeviceToken(id string) (string, error) {
 	}
 	h.cache.put(tok, id)
 	return tok, nil
+}
+
+const (
+	subBufferSize    = 16
+	scrubInterval    = time.Minute
+	scrubInactiveAge = 30 * time.Minute
+)
+
+// Subscribe registers an SSE channel for deviceID. Any previous subscription
+// for the same device is closed and replaced. The returned unsubscribe
+// function should be called when the SSE handler exits.
+func (h *Hub) Subscribe(deviceID string) (<-chan *Message, func()) {
+	ch := make(chan *Message, subBufferSize)
+	h.mu.Lock()
+	if old, ok := h.subs[deviceID]; ok {
+		close(old)
+	}
+	h.subs[deviceID] = ch
+	h.mu.Unlock()
+
+	unsub := func() {
+		h.mu.Lock()
+		if cur, ok := h.subs[deviceID]; ok && cur == ch {
+			delete(h.subs, deviceID)
+			close(ch)
+		}
+		h.mu.Unlock()
+	}
+	return ch, unsub
+}
+
+// Dispatch delivers `text` from the sender (identified by token) to targetID.
+// Returns the created Message on success.
+func (h *Hub) Dispatch(senderToken, targetID, text, requestID string, preserveClipboard bool) (*Message, error) {
+	sender, err := h.ResolveDeviceByToken(senderToken)
+	if err != nil {
+		return nil, err
+	}
+	h.mu.RLock()
+	target, ok := h.devices[targetID]
+	if !ok {
+		h.mu.RUnlock()
+		return nil, ErrDeviceNotFound
+	}
+	if target.AccountID != sender.AccountID {
+		h.mu.RUnlock()
+		return nil, ErrCrossAccount
+	}
+	ch, online := h.subs[targetID]
+	h.mu.RUnlock()
+	if !online {
+		return nil, ErrReceiverOffline
+	}
+
+	msg := &Message{
+		ID:                "msg-" + shortID(),
+		Text:              text,
+		FromDevice:        sender.ID,
+		RequestID:         requestID,
+		PreserveClipboard: preserveClipboard,
+		CreatedAt:         time.Now().UTC(),
+	}
+
+	select {
+	case ch <- msg:
+	default:
+		return nil, ErrBackpressure
+	}
+
+	h.mu.Lock()
+	if d, ok := h.devices[sender.ID]; ok {
+		d.LastSeen = msg.CreatedAt
+	}
+	if d, ok := h.devices[target.ID]; ok {
+		d.LastSeen = msg.CreatedAt
+	}
+	h.mu.Unlock()
+
+	return msg, nil
+}
+
+// RunScrubber periodically drops inactive subscriber channels. Blocks until
+// ctx is canceled.
+func (h *Hub) RunScrubber(ctx context.Context) {
+	ticker := time.NewTicker(scrubInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.scrubOnce()
+		}
+	}
+}
+
+func (h *Hub) scrubOnce() {
+	cutoff := time.Now().UTC().Add(-scrubInactiveAge)
+	h.mu.Lock()
+	for id, ch := range h.subs {
+		if d, ok := h.devices[id]; ok && d.LastSeen.Before(cutoff) {
+			close(ch)
+			delete(h.subs, id)
+		}
+	}
+	h.mu.Unlock()
 }
 
 // ResolveDeviceByToken returns the device matching `token`, using token cache

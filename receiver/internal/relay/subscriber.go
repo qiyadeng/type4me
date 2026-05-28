@@ -95,6 +95,9 @@ func (s *Subscriber) connectAndStream(ctx context.Context, lastID *string) error
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
+	log.Printf("connected to %s (HTTP 200, content-type=%q); waiting for events",
+		s.RelayURL, resp.Header.Get("Content-Type"))
+
 	return ParseSSE(resp.Body, func(ev SSEEvent) error {
 		if ev.Event != "inject" {
 			return nil

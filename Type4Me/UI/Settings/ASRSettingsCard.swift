@@ -45,6 +45,15 @@ struct ASRSettingsCard: View, SettingsCardHelpers {
         for key in editedFields {
             result[key] = asrCredentialValues[key] ?? ""
         }
+        // Safety net: fill in field-declared defaultValue for any required field that's
+        // still missing (covers the case where .task didn't fully populate asrCredentialValues
+        // before the user starts typing — e.g. resourceId picker shows "Auto" via fallback
+        // get-block but state never got written, so hasASRCredentials would stay false).
+        for field in currentASRFields where !field.defaultValue.isEmpty {
+            if (result[field.key] ?? "").isEmpty {
+                result[field.key] = field.defaultValue
+            }
+        }
         return result
     }
 

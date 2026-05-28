@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -286,5 +287,77 @@ func TestAdminDeleteDevice(t *testing.T) {
 	resp, _ := http.DefaultClient.Do(req)
 	if resp.StatusCode != 204 {
 		t.Errorf("status=%d", resp.StatusCode)
+	}
+}
+
+func TestSubscribeRequiresAuth(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	resp, _ := http.Get(ts.URL + "/v1/subscribe")
+	if resp.StatusCode != 401 {
+		t.Errorf("status=%d", resp.StatusCode)
+	}
+}
+
+func TestSubscribeDeliversDispatchedMessage(t *testing.T) {
+	ts, _, admin := newTestServer(t)
+	_, accBody := adminPOST(t, ts, admin, "/v1/admin/accounts", `{"name":"P"}`)
+	accID := accBody["account_id"].(string)
+	_, macBody := adminPOST(t, ts, admin, "/v1/admin/devices",
+		`{"account_id":"`+accID+`","label":"Mac"}`)
+	_, winBody := adminPOST(t, ts, admin, "/v1/admin/devices",
+		`{"account_id":"`+accID+`","label":"Win"}`)
+	macTok := macBody["device_token"].(string)
+	winTok := winBody["device_token"].(string)
+	winID := winBody["device_id"].(string)
+
+	subReq, _ := http.NewRequest("GET", ts.URL+"/v1/subscribe", nil)
+	subReq.Header.Set("Authorization", "Bearer "+winTok)
+	subResp, err := http.DefaultClient.Do(subReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subResp.Body.Close()
+	if subResp.StatusCode != 200 {
+		t.Fatalf("subscribe status=%d", subResp.StatusCode)
+	}
+	if ct := subResp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type=%q", ct)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	body := `{"target_device_id":"` + winID + `","text":"hello-sse"}`
+	dispReq, _ := http.NewRequest("POST", ts.URL+"/v1/dispatch", strings.NewReader(body))
+	dispReq.Header.Set("Authorization", "Bearer "+macTok)
+	dispResp, err := http.DefaultClient.Do(dispReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispResp.StatusCode != 202 {
+		t.Fatalf("dispatch status=%d", dispResp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(subResp.Body)
+	gotID, gotEvent, gotData := "", "", ""
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, "id: "):
+			gotID = strings.TrimPrefix(line, "id: ")
+		case strings.HasPrefix(line, "event: "):
+			gotEvent = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			gotData = strings.TrimPrefix(line, "data: ")
+		case line == "" && gotData != "":
+			goto done
+		}
+	}
+done:
+	if gotID == "" || gotEvent != "inject" {
+		t.Errorf("bad frame: id=%q event=%q", gotID, gotEvent)
+	}
+	if !strings.Contains(gotData, `"text":"hello-sse"`) {
+		t.Errorf("data missing text: %q", gotData)
 	}
 }

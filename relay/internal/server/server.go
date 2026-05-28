@@ -28,6 +28,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/v1/ping", requireDevice(s.opts.Hub, s.handlePing))
 	mux.HandleFunc("/v1/dispatch", requireDevice(s.opts.Hub, s.handleDispatch))
+	mux.HandleFunc("/v1/subscribe", requireDevice(s.opts.Hub, s.handleSubscribe))
 
 	mux.HandleFunc("/v1/admin/accounts", requireAdmin(s.opts.AdminToken,
 		func(w http.ResponseWriter, r *http.Request) {

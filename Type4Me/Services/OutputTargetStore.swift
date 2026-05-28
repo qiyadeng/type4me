@@ -13,6 +13,7 @@ final class OutputTargetStore {
     }
 
     /// Returns the OutputTarget array, or empty if the file/key is missing or malformed.
+    /// Filters out entries whose `mode`-specific required fields are missing.
     func load() -> [OutputTarget] {
         guard let data = try? Data(contentsOf: credentialsFile),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -21,19 +22,11 @@ final class OutputTargetStore {
 
         var out: [OutputTarget] = []
         for entry in arr {
-            guard
-                let id = entry["id"] as? String,
-                let name = entry["name"] as? String,
-                let host = entry["host"] as? String,
-                let port = entry["port"] as? Int,
-                let token = entry["token"] as? String,
-                let bundleIds = entry["matchBundleIds"] as? [String],
-                let enabled = entry["enabled"] as? Bool
+            guard let entryData = try? JSONSerialization.data(withJSONObject: entry),
+                  let target = try? JSONDecoder().decode(OutputTarget.self, from: entryData),
+                  target.isValid
             else { continue }
-            out.append(OutputTarget(
-                id: id, name: name, host: host, port: port, token: token,
-                matchBundleIds: bundleIds, enabled: enabled
-            ))
+            out.append(target)
         }
         return out
     }

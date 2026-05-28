@@ -42,7 +42,7 @@ final class RemoteHTTPSink: OutputSink, @unchecked Sendable {
         var req = URLRequest(url: url, timeoutInterval: timeout)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Bearer \(target.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("Bearer \(target.token ?? "")", forHTTPHeaderField: "Authorization")
 
         let body: [String: Any] = [
             "text": text,

@@ -1,0 +1,28 @@
+# Append this block to your Caddyfile.
+# Replace `relay.your-domain.com` with your actual hostname.
+
+relay.your-domain.com {
+    encode gzip
+
+    reverse_proxy 127.0.0.1:8443 {
+        flush_interval -1
+        transport http {
+            response_header_timeout 0s
+            read_buffer 4KB
+        }
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "no-referrer"
+    }
+
+    log {
+        output file /var/log/caddy/relay-access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+        format json
+    }
+}

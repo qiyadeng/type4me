@@ -1,0 +1,31 @@
+[Unit]
+Description=Type4Me relay (SSE PubSub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=type4me
+Group=type4me
+EnvironmentFile=/etc/type4me-relay/env
+ExecStart=/usr/local/bin/type4me-relay serve
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# 安全 hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/type4me-relay
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

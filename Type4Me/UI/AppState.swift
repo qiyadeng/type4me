@@ -666,6 +666,7 @@ final class AppState {
         currentMode = modes.first(where: { $0.id == ProcessingMode.smartDirectId })
             ?? modes.first
             ?? .direct
+        setupAccount()
     }
 
     // MARK: Actions
@@ -813,9 +814,15 @@ final class AppState {
 
     // MARK: - Remote output routing
 
-    /// All configured remote targets (loaded from credentials.json at init time).
-    /// Hand-edit credentials.json and call `reloadRemoteTargets()` to refresh.
+    /// Active remote targets feeding the router/selector. Rebuilt by
+    /// `rebuildRemoteTargets()`: when logged in, these are the synthesized account
+    /// device targets; when logged out, the manual targets from credentials.json.
+    /// The initializer value is a sane default; `setupAccount()` rebuilds it at init.
     var remoteTargets: [OutputTarget] = OutputTargetStore().load()
+
+    /// Account session: when logged in, drives `remoteTargets` from the synthesized
+    /// account device targets instead of credentials.json.
+    let account = AccountSession()
 
     /// User's manual route override. Defaults to `.auto`.
     /// Persisted to UserDefaults under "tf_output_override".
@@ -841,9 +848,29 @@ final class AppState {
         UserDefaults.standard.set(raw, forKey: "tf_output_override")
     }
 
-    /// Reload targets from disk (e.g., user hand-edited credentials.json).
+    /// Reload targets (e.g., user hand-edited credentials.json while logged out).
     func reloadRemoteTargets() {
-        remoteTargets = OutputTargetStore().load()
+        rebuildRemoteTargets()
+    }
+
+    /// Recompute `remoteTargets` from the correct source for the current login state,
+    /// then drop a stale `.remote` override that no longer matches.
+    func rebuildRemoteTargets() {
+        remoteTargets = RemoteTargetResolver.targets(
+            accountState: account.state,
+            synthesized: { self.account.synthesizedTargets() },
+            manual: { OutputTargetStore().load() }
+        )
+        outputOverride = RemoteTargetResolver.sanitizedOverride(outputOverride, targets: remoteTargets)
+    }
+
+    /// Wire the account session to drive target rebuilds, restore prior login, and
+    /// refresh the device list in the background. Call once from init.
+    func setupAccount() {
+        account.onChange = { [weak self] in self?.rebuildRemoteTargets() }
+        account.bootstrap()
+        rebuildRemoteTargets()
+        Task { await account.refreshDevices() }
     }
 }
 

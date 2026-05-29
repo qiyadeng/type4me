@@ -823,7 +823,7 @@ final class AppState {
         didSet { AppState.saveOverride(outputOverride) }
     }
 
-    nonisolated private static func loadOverride() -> OutputOverride {
+    nonisolated static func loadOverride() -> OutputOverride {
         let raw = UserDefaults.standard.string(forKey: "tf_output_override") ?? "auto"
         if raw == "auto" { return .auto }
         if raw == "local" { return .local }
@@ -831,7 +831,7 @@ final class AppState {
         return .auto
     }
 
-    nonisolated private static func saveOverride(_ o: OutputOverride) {
+    nonisolated static func saveOverride(_ o: OutputOverride) {
         let raw: String
         switch o {
         case .auto: raw = "auto"

@@ -126,4 +126,30 @@ final class AppStateTests: XCTestCase {
 
         XCTAssertEqual(appState.currentMode.id, customMode.id)
     }
+
+    func testOutputOverrideRoundTrips() {
+        let key = "tf_output_override"
+        let saved = UserDefaults.standard.string(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        for value: OutputOverride in [.auto, .local, .remote("win-7")] {
+            AppState.saveOverride(value)
+            XCTAssertEqual(AppState.loadOverride(), value, "应往返保持: \(value)")
+        }
+    }
+
+    func testOutputOverrideDefaultsToAutoForUnknownRawValue() {
+        let key = "tf_output_override"
+        let saved = UserDefaults.standard.string(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        UserDefaults.standard.set("garbage-value", forKey: key)
+        XCTAssertEqual(AppState.loadOverride(), .auto, "无法识别的值应回退到 .auto")
+    }
 }

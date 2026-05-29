@@ -129,3 +129,60 @@ func TestLoadRelayModeDoesNotGenerateListenerToken(t *testing.T) {
 		t.Errorf("listener token should be empty in relay mode, got %q", cfg.Token)
 	}
 }
+
+func TestIsRelayConfigured(t *testing.T) {
+	full := &Config{Mode: ModeRelaySubscriber, RelayURL: "u", DeviceID: "d", DeviceToken: "t"}
+	if !full.IsRelayConfigured() {
+		t.Error("complete relay config should be considered configured")
+	}
+	notConfigured := []*Config{
+		{Mode: ModeListener, RelayURL: "u", DeviceID: "d", DeviceToken: "t"},
+		{Mode: ModeRelaySubscriber, DeviceID: "d", DeviceToken: "t"},
+		{Mode: ModeRelaySubscriber, RelayURL: "u", DeviceToken: "t"},
+		{Mode: ModeRelaySubscriber, RelayURL: "u", DeviceID: "d"},
+	}
+	for i, c := range notConfigured {
+		if c.IsRelayConfigured() {
+			t.Errorf("case %d should not be configured: %+v", i, c)
+		}
+	}
+}
+
+func TestReadFileMissingReturnsListenerDefaults(t *testing.T) {
+	cfg, err := ReadFile(filepath.Join(t.TempDir(), "nope.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if cfg.Mode != ModeListener {
+		t.Errorf("mode = %q, want listener", cfg.Mode)
+	}
+	if cfg.Port != DefaultPort {
+		t.Errorf("port = %d, want %d", cfg.Port, DefaultPort)
+	}
+	if cfg.BindAddr != DefaultBindAddr {
+		t.Errorf("bind_addr = %q, want %q", cfg.BindAddr, DefaultBindAddr)
+	}
+}
+
+func TestReadFileReadErrorPropagates(t *testing.T) {
+	dir := t.TempDir() // a directory, not a file
+	if _, err := ReadFile(dir); err == nil {
+		t.Error("expected error when path is a directory, got nil")
+	}
+}
+
+func TestReadFileParsesRelayConfig(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.json")
+	data := `{"mode":"relay-subscriber","relay_url":"https://r","device_id":"dev-1","device_token":"tok"}`
+	if err := os.WriteFile(p, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !cfg.IsRelayConfigured() || cfg.DeviceID != "dev-1" {
+		t.Errorf("cfg = %+v", cfg)
+	}
+}

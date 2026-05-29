@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -133,4 +134,33 @@ func hostname() string {
 		return h
 	}
 	return "type4me-receiver"
+}
+
+// IsRelayConfigured reports whether the config is a complete relay-subscriber
+// setup ready to start a Subscriber without prompting for login.
+func (c *Config) IsRelayConfigured() bool {
+	return c.Mode == ModeRelaySubscriber &&
+		c.RelayURL != "" && c.DeviceID != "" && c.DeviceToken != ""
+}
+
+// ReadFile loads config from path WITHOUT enforcing relay-mode completeness or
+// generating a listener token (unlike Load). A missing file returns
+// listener-mode defaults. Used by the GUI, which decides login-vs-resume itself.
+func ReadFile(path string) (*Config, error) {
+	cfg := &Config{
+		Mode:     ModeListener,
+		Port:     DefaultPort,
+		BindAddr: DefaultBindAddr,
+		Name:     hostname(),
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if err == nil {
+		if err := json.Unmarshal(data, cfg); err != nil {
+			return nil, err
+		}
+	}
+	return cfg, nil
 }

@@ -20,6 +20,16 @@ const (
 
 	vkControl = 0x11
 	vkV       = 0x56
+
+	// Modifier VKs we proactively release before paste — see sendCtrlV.
+	vkLShift   = 0xA0
+	vkRShift   = 0xA1
+	vkLControl = 0xA2
+	vkRControl = 0xA3
+	vkLMenu    = 0xA4 // Left Alt
+	vkRMenu    = 0xA5 // Right Alt / AltGr
+	vkLWin     = 0x5B
+	vkRWin     = 0x5C
 )
 
 var (
@@ -133,7 +143,38 @@ func setClipboardUTF16(s string) error {
 // sendCtrlV synthesizes the keyboard sequence Ctrl down → V down → V up → Ctrl up
 // via SendInput. Using SendInput (not keybd_event) is more IME-friendly and
 // gives us atomic injection per the spec § 5.2.
+//
+// Before the paste, we issue key-up events for every common modifier (Shift /
+// Ctrl / Alt / Win, both left and right). This guards against the remote-
+// desktop case where the host machine (e.g. Mac running ToDesk) forwards
+// modifier-down events into Windows but the matching up-event is lost or
+// raced — leaving the Windows kernel believing a modifier is still held,
+// which combines with our synthetic Ctrl+V to produce Ctrl+Alt+V (paste
+// special), Ctrl+Shift+V (other shortcut) or even random characters when
+// the focused app's IME interprets the stuck-modifier state oddly.
+//
+// SendInput with KeyUp for a key that's not currently down is a no-op, so
+// flushing modifiers does not disturb the user's normal typing on Windows
+// — it only matters in the bug case where state was already corrupted.
 func sendCtrlV() error {
+	// Phase 1: force-release every modifier.
+	modifiers := []uint16{
+		vkLShift, vkRShift,
+		vkLControl, vkRControl, vkControl,
+		vkLMenu, vkRMenu,
+		vkLWin, vkRWin,
+	}
+	flush := make([]kbdInput, 0, len(modifiers))
+	for _, m := range modifiers {
+		flush = append(flush, kbdInput{typ: inputKeyboard, vk: m, flags: keyEventfKeyUp})
+	}
+	procSendInput.Call(
+		uintptr(len(flush)),
+		uintptr(unsafe.Pointer(&flush[0])),
+		unsafe.Sizeof(flush[0]),
+	)
+
+	// Phase 2: actual Ctrl+V.
 	inputs := []kbdInput{
 		{typ: inputKeyboard, vk: vkControl},                        // Ctrl down
 		{typ: inputKeyboard, vk: vkV},                              // V    down
@@ -148,5 +189,14 @@ func sendCtrlV() error {
 	if int(n) != len(inputs) {
 		return fmt.Errorf("SendInput: wrote %d of %d", n, len(inputs))
 	}
+
+	// Phase 3: defensive — re-flush modifiers after paste in case any timer/
+	// RDP event leaked a down-event during the Ctrl+V window. Cheap insurance.
+	procSendInput.Call(
+		uintptr(len(flush)),
+		uintptr(unsafe.Pointer(&flush[0])),
+		unsafe.Sizeof(flush[0]),
+	)
+
 	return nil
 }

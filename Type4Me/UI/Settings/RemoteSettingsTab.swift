@@ -22,6 +22,8 @@ struct RemoteSettingsTab: View, SettingsCardHelpers {
                 )
             )
 
+            activeOutputCard
+
             credentialsCard
 
             if appState.remoteTargets.isEmpty {
@@ -30,6 +32,45 @@ struct RemoteSettingsTab: View, SettingsCardHelpers {
                 ForEach(appState.remoteTargets) { target in
                     targetCard(target)
                 }
+            }
+        }
+    }
+
+    // MARK: - Active output target
+
+    private var activeOutputCard: some View {
+        // Display-fallback: if the locked target was deleted/disabled, show
+        // "Auto" rather than an empty radio group. Routing already degrades to
+        // local in that case (see OutputRouter.resolve).
+        let selection = Binding<OutputOverride>(
+            get: {
+                if case let .remote(id) = appState.outputOverride,
+                   !appState.remoteTargets.contains(where: { $0.id == id && $0.enabled }) {
+                    return .auto
+                }
+                return appState.outputOverride
+            },
+            set: { appState.outputOverride = $0 }
+        )
+        return settingsGroupCard(L("激活目标", "Active Output"), icon: "scope") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L(
+                    "锁定转写文本的去向。选「自动」时按前台 App 的 bundle id 匹配;选某台远程时,无视前台 App 直接发往该机器(适用于同一远程桌面客户端开多台时,自动匹配分不清的情况)。切换在下一次说话生效。",
+                    "Lock where transcribed text goes. \"Auto\" matches by the frontmost app's bundle id; picking a remote sends there regardless of the frontmost app (use this when one remote-desktop client has several machines open and auto-match can't tell them apart). Takes effect on your next recording."
+                ))
+                .font(.system(size: 12))
+                .foregroundStyle(TF.settingsTextSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Picker("", selection: selection) {
+                    Text(L("自动(按前台 App 匹配)", "Auto (match frontmost app)")).tag(OutputOverride.auto)
+                    Text(L("本机 Mac", "This Mac")).tag(OutputOverride.local)
+                    ForEach(appState.remoteTargets.filter { $0.enabled }) { t in
+                        Text(t.name).tag(OutputOverride.remote(t.id))
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.radioGroup)
             }
         }
     }

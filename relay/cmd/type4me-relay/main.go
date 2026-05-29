@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -53,10 +55,22 @@ func main() {
 	defer stop()
 	go h.RunScrubber(ctx)
 
+	inviteCodes := splitAndTrim(os.Getenv("TYPE4ME_RELAY_INVITE_CODES"))
+	sessionKey := []byte(os.Getenv("TYPE4ME_RELAY_SESSION_KEY"))
+	if len(sessionKey) == 0 {
+		sessionKey = make([]byte, 32)
+		if _, err := rand.Read(sessionKey); err != nil {
+			log.Fatalf("generate session key: %v", err)
+		}
+		log.Println("WARNING: TYPE4ME_RELAY_SESSION_KEY unset; using a random key. All sessions invalidate on restart.")
+	}
+
 	srv := server.New(server.Options{
-		Hub:        h,
-		AdminToken: admin,
-		Version:    version,
+		Hub:         h,
+		AdminToken:  admin,
+		Version:     version,
+		InviteCodes: inviteCodes,
+		SessionKey:  sessionKey,
 	})
 
 	httpSrv := &http.Server{
@@ -77,4 +91,19 @@ func main() {
 	sctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(sctx)
+}
+
+// splitAndTrim splits a comma-separated string, trims whitespace, and drops empty items.
+func splitAndTrim(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

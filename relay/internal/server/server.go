@@ -9,18 +9,36 @@ import (
 )
 
 type Options struct {
-	Hub        *hub.Hub
-	AdminToken string
-	Version    string
+	Hub         *hub.Hub
+	AdminToken  string
+	Version     string
+	InviteCodes []string
+	SessionKey  []byte
 }
 
 type Server struct {
-	opts    Options
-	started time.Time
+	opts        Options
+	started     time.Time
+	signer      sessionSigner
+	inviteCodes map[string]struct{}
+	limiter     *rateLimiter
 }
 
 func New(opts Options) *Server {
-	return &Server{opts: opts, started: time.Now().UTC()}
+	invites := map[string]struct{}{}
+	for _, c := range opts.InviteCodes {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			invites[c] = struct{}{}
+		}
+	}
+	return &Server{
+		opts:        opts,
+		started:     time.Now().UTC(),
+		signer:      newSessionSigner(opts.SessionKey),
+		inviteCodes: invites,
+		limiter:     newRateLimiter(authRateLimit, authRateWindow),
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -61,6 +79,20 @@ func (s *Server) Handler() http.Handler {
 				s.handleAdminRotateDevice(w, r)
 			case r.Method == "DELETE":
 				s.handleAdminDeleteDevice(w, r)
+			default:
+				w.WriteHeader(405)
+			}
+		}))
+
+	mux.HandleFunc("/v1/auth/register", s.limiter.wrap(s.handleRegister))
+	mux.HandleFunc("/v1/auth/login", s.limiter.wrap(s.handleLogin))
+	mux.HandleFunc("/v1/devices", requireSession(s.signer,
+		func(w http.ResponseWriter, r *http.Request, accountID string) {
+			switch r.Method {
+			case "POST":
+				s.handlePostDevice(w, r, accountID)
+			case "GET":
+				s.handleGetDevices(w, r, accountID)
 			default:
 				w.WriteHeader(405)
 			}

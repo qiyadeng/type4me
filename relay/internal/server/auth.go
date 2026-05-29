@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/qiyadeng/type4me/relay/internal/hub"
 )
@@ -52,4 +53,17 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+type sessionHandler func(w http.ResponseWriter, r *http.Request, accountID string)
+
+func requireSession(signer sessionSigner, next sessionHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accountID, err := signer.verify(extractBearer(r), time.Now().UTC())
+		if err != nil {
+			writeJSON(w, 401, map[string]string{"error": "invalid_session"})
+			return
+		}
+		next(w, r, accountID)
+	}
 }

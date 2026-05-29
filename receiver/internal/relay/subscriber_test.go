@@ -177,3 +177,77 @@ func TestSubscriberIgnoresBadJSON(t *testing.T) {
 		t.Errorf("calls = %+v, expected only 'good'", calls)
 	}
 }
+
+func TestSubscriberOnStatusLifecycle(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer ts.Close()
+
+	var mu sync.Mutex
+	var got []Status
+	s := &Subscriber{
+		RelayURL: ts.URL, DeviceToken: "tok", Injector: &mockInjector{},
+		HTTPClient: &http.Client{},
+		OnStatus: func(st Status, err error) {
+			mu.Lock()
+			got = append(got, st)
+			mu.Unlock()
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_ = s.Run(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) == 0 || got[0] != StatusConnecting {
+		t.Fatalf("statuses = %+v, want first=connecting", got)
+	}
+	connected := false
+	for _, st := range got {
+		if st == StatusConnected {
+			connected = true
+		}
+	}
+	if !connected {
+		t.Errorf("expected a connected status; got %+v", got)
+	}
+}
+
+func TestSubscriberOnStatusErrorOn401(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(401)
+	}))
+	defer ts.Close()
+	var mu sync.Mutex
+	var got []Status
+	s := &Subscriber{
+		RelayURL: ts.URL, DeviceToken: "bad", Injector: &mockInjector{},
+		HTTPClient: &http.Client{},
+		OnStatus: func(st Status, err error) {
+			mu.Lock()
+			got = append(got, st)
+			mu.Unlock()
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = s.Run(ctx)
+	mu.Lock()
+	defer mu.Unlock()
+	sawError := false
+	for _, st := range got {
+		if st == StatusError {
+			sawError = true
+		}
+	}
+	if !sawError {
+		t.Errorf("expected error status on 401; got %+v", got)
+	}
+}

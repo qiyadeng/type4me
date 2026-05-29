@@ -26,6 +26,25 @@ type Subscriber struct {
 	// ReconnectMin defaults to 1s if zero. Backoff doubles on each failure,
 	// capped at 30s.
 	ReconnectMin time.Duration
+
+	// OnStatus, if non-nil, is called on connection lifecycle changes (for UI).
+	OnStatus func(Status, error)
+}
+
+// Status reports the subscriber's connection lifecycle for UI display.
+type Status string
+
+const (
+	StatusConnecting   Status = "connecting"
+	StatusConnected    Status = "connected"
+	StatusReconnecting Status = "reconnecting"
+	StatusError        Status = "error"
+)
+
+func (s *Subscriber) emit(st Status, err error) {
+	if s.OnStatus != nil {
+		s.OnStatus(st, err)
+	}
 }
 
 type sseInjectPayload struct {
@@ -48,9 +67,11 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
+		s.emit(StatusConnecting, nil)
 		connStart := time.Now()
 		err := s.connectAndStream(ctx, &lastEventID)
 		if errors.Is(err, errAuth) {
+			s.emit(StatusError, err)
 			return fmt.Errorf("subscribe: %w", err)
 		}
 		if ctx.Err() != nil {
@@ -62,6 +83,7 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		if time.Since(connStart) >= 10*time.Second {
 			backoff = min
 		}
+		s.emit(StatusReconnecting, err)
 		log.Printf("subscribe: %v; reconnecting in %s", err, backoff)
 		select {
 		case <-ctx.Done():
@@ -104,6 +126,7 @@ func (s *Subscriber) connectAndStream(ctx context.Context, lastID *string) error
 
 	log.Printf("connected to %s (HTTP 200, content-type=%q); waiting for events",
 		s.RelayURL, resp.Header.Get("Content-Type"))
+	s.emit(StatusConnected, nil)
 
 	return ParseSSE(resp.Body, func(ev SSEEvent) error {
 		if ev.Event != "inject" {

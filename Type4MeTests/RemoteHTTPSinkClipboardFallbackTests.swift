@@ -51,6 +51,25 @@ final class RemoteHTTPSinkClipboardFallbackTests: XCTestCase {
         _ = sink.inject("x")
         XCTAssertFalse(mock.lastRequestID.isEmpty)
     }
+
+    func testInjectDelegatesToFallbackOnTransportFailure() {
+        let fallback = RecordingSink(outcome: .inserted)
+        let sink = RemoteHTTPSink(target: makeTarget(),
+                                  transport: MockTransport(result: false),
+                                  fallback: fallback)
+        let outcome = sink.inject("to-fallback")
+        XCTAssertEqual(fallback.injected, ["to-fallback"], "失败时应把文本交给本机 fallback")
+        XCTAssertEqual(outcome, .inserted, "应返回 fallback 的结果")
+    }
+
+    func testInjectDoesNotUseFallbackOnTransportSuccess() {
+        let fallback = RecordingSink(outcome: .inserted)
+        let sink = RemoteHTTPSink(target: makeTarget(),
+                                  transport: MockTransport(result: true),
+                                  fallback: fallback)
+        XCTAssertEqual(sink.inject("ok"), .inserted)
+        XCTAssertTrue(fallback.injected.isEmpty, "成功时不应触发 fallback")
+    }
 }
 
 private final class MockTransport: RemoteTransport, @unchecked Sendable {
@@ -64,5 +83,15 @@ private final class MockTransport: RemoteTransport, @unchecked Sendable {
         lastRequestID = requestID
         lastPreserveClipboard = preserveClipboard
         return result
+    }
+}
+
+private final class RecordingSink: OutputSink, @unchecked Sendable {
+    let outcome: InjectionOutcome
+    var injected: [String] = []
+    init(outcome: InjectionOutcome) { self.outcome = outcome }
+    func inject(_ text: String) -> InjectionOutcome {
+        injected.append(text)
+        return outcome
     }
 }

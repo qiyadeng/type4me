@@ -14,9 +14,9 @@ type State struct {
 	Devices  []*Device  `json:"devices"`
 }
 
-const stateVersion = 1
+const stateVersion = 2
 
-// loadState reads state from path; missing file returns empty state (version=1).
+// loadState reads state from path; missing file returns empty state (version=stateVersion).
 func loadState(path string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {

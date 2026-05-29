@@ -16,6 +16,7 @@ type Hub struct {
 	devices   map[string]*Device
 	subs      map[string]chan *Message
 	cache     *tokenCache
+	usernames map[string]string // lower(username) -> accountID
 }
 
 // New creates a Hub, loading existing state from disk if present.
@@ -30,9 +31,13 @@ func New(statePath string) (*Hub, error) {
 		devices:   map[string]*Device{},
 		subs:      map[string]chan *Message{},
 		cache:     newTokenCache(),
+		usernames: map[string]string{},
 	}
 	for _, a := range st.Accounts {
 		h.accounts[a.ID] = a
+		if a.Username != "" {
+			h.usernames[strings.ToLower(a.Username)] = a.ID
+		}
 	}
 	for _, d := range st.Devices {
 		h.devices[d.ID] = d

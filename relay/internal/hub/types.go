@@ -13,9 +13,11 @@ const (
 )
 
 type Account struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Username     string    `json:"username,omitempty"`
+	PasswordHash string    `json:"password_hash,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Device struct {

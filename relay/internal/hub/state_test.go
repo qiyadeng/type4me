@@ -12,7 +12,7 @@ func TestSaveAndLoadState(t *testing.T) {
 	path := filepath.Join(dir, "state.json")
 	now := time.Now().UTC().Truncate(time.Second)
 	want := &State{
-		Version: 1,
+		Version: stateVersion,
 		Accounts: []*Account{
 			{ID: "acct-1", Name: "test", CreatedAt: now},
 		},
@@ -47,8 +47,8 @@ func TestLoadStateMissingFileReturnsEmpty(t *testing.T) {
 	if len(st.Accounts) != 0 || len(st.Devices) != 0 {
 		t.Errorf("expected empty state, got %+v", st)
 	}
-	if st.Version != 1 {
-		t.Errorf("expected version 1, got %d", st.Version)
+	if st.Version != stateVersion {
+		t.Errorf("expected version %d, got %d", stateVersion, st.Version)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestSaveStateAtomicReplacesExisting(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
 	_ = os.WriteFile(path, []byte("{}"), 0600)
-	st := &State{Version: 1, Accounts: []*Account{{ID: "x", Name: "y"}}}
+	st := &State{Version: stateVersion, Accounts: []*Account{{ID: "x", Name: "y"}}}
 	if err := saveState(path, st); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestSaveStateAtomicReplacesExisting(t *testing.T) {
 func TestSaveStatePermissions0600(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
-	_ = saveState(path, &State{Version: 1})
+	_ = saveState(path, &State{Version: stateVersion})
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)

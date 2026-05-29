@@ -112,3 +112,12 @@ func TestAuthRoutesRejectNonPost(t *testing.T) {
 		}
 	}
 }
+
+func TestRegisterRejectsOversizedBody(t *testing.T) {
+	ts, _ := newAuthServer(t)
+	big := `{"username":"alice","password":"` + strings.Repeat("x", 8000) + `","invite_code":"LET-ME-IN"}`
+	resp := postJSON(t, ts.URL+"/v1/auth/register", big)
+	if resp.StatusCode != 400 {
+		t.Errorf("oversized body = %d, want 400", resp.StatusCode)
+	}
+}

@@ -63,6 +63,8 @@ func main() {
 			log.Fatalf("generate session key: %v", err)
 		}
 		log.Println("WARNING: TYPE4ME_RELAY_SESSION_KEY unset; using a random key. All sessions invalidate on restart.")
+	} else if len(sessionKey) < 16 {
+		log.Println("WARNING: TYPE4ME_RELAY_SESSION_KEY is shorter than 16 bytes; use a long random string in production.")
 	}
 
 	srv := server.New(server.Options{

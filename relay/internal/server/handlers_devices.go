@@ -9,6 +9,7 @@ import (
 )
 
 func (s *Server) handlePostDevice(w http.ResponseWriter, r *http.Request, accountID string) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	var req struct {
 		Label string   `json:"label"`
 		Role  hub.Role `json:"role"`

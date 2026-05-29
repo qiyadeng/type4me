@@ -9,11 +9,14 @@ import (
 	"github.com/qiyadeng/type4me/relay/internal/hub"
 )
 
+const maxAuthBodyBytes = 4096
+
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(405)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	var req struct {
 		Username   string `json:"username"`
 		Password   string `json:"password"`
@@ -57,6 +60,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(405)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`

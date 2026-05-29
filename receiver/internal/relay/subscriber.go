@@ -48,12 +48,19 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
+		connStart := time.Now()
 		err := s.connectAndStream(ctx, &lastEventID)
 		if errors.Is(err, errAuth) {
 			return fmt.Errorf("subscribe: %w", err)
 		}
 		if ctx.Err() != nil {
 			return nil
+		}
+		// If the connection lasted ≥10s before dropping, treat the previous
+		// attempt as successful and reset backoff. Otherwise keep growing it
+		// — that path is for "relay is unhealthy, don't hammer it".
+		if time.Since(connStart) >= 10*time.Second {
+			backoff = min
 		}
 		log.Printf("subscribe: %v; reconnecting in %s", err, backoff)
 		select {

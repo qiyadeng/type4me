@@ -1,6 +1,6 @@
 import Foundation
 
-enum OutputOverride: Equatable, Hashable, Sendable {
+enum OutputOverride: Hashable, Sendable {
     case auto
     case local
     case remote(_ targetId: String)

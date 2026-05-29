@@ -40,13 +40,14 @@ struct RemoteSettingsTab: View, SettingsCardHelpers {
 
     private var activeOutputCard: some View {
         // Display-fallback: if the locked target was deleted/disabled, show
-        // "Auto" rather than an empty radio group. Routing already degrades to
-        // local in that case (see OutputRouter.resolve).
+        // "This Mac" rather than an empty radio group — that matches where the
+        // text actually goes, since OutputRouter.resolve degrades a stale
+        // .remote(id) to the local sink.
         let selection = Binding<OutputOverride>(
             get: {
                 if case let .remote(id) = appState.outputOverride,
                    !appState.remoteTargets.contains(where: { $0.id == id && $0.enabled }) {
-                    return .auto
+                    return .local
                 }
                 return appState.outputOverride
             },

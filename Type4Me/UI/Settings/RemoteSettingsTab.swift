@@ -22,6 +22,8 @@ struct RemoteSettingsTab: View, SettingsCardHelpers {
                 )
             )
 
+            AccountCard()
+
             activeOutputCard
 
             credentialsCard

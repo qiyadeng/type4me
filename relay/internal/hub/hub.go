@@ -298,6 +298,90 @@ func (h *Hub) scrubOnce() {
 	h.mu.Unlock()
 }
 
+const (
+	minUsernameLen = 3
+	maxUsernameLen = 32
+	minPasswordLen = 8
+	maxPasswordLen = 72
+)
+
+// RegisterUser creates an account with a username/password.
+func (h *Hub) RegisterUser(username, password string) (*Account, error) {
+	username = strings.TrimSpace(username)
+	// len() is byte length; the username policy intentionally restricts to the ASCII range.
+	if len(username) < minUsernameLen || len(username) > maxUsernameLen {
+		return nil, ErrUsernameInvalid
+	}
+	if len(password) < minPasswordLen {
+		return nil, ErrPasswordTooShort
+	}
+	if len(password) > maxPasswordLen {
+		return nil, ErrPasswordTooLong
+	}
+	key := strings.ToLower(username)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, exists := h.usernames[key]; exists {
+		return nil, ErrUsernameTaken
+	}
+	hash, err := hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+	acc := &Account{
+		ID:           "acct-" + shortID(),
+		Name:         username, // Name retained for legacy/admin-created-account compatibility
+		Username:     username,
+		PasswordHash: hash,
+		CreatedAt:    time.Now().UTC(),
+	}
+	h.accounts[acc.ID] = acc
+	h.usernames[key] = acc.ID
+	if err := h.persistLocked(); err != nil {
+		delete(h.accounts, acc.ID)
+		delete(h.usernames, key)
+		return nil, err
+	}
+	return acc, nil
+}
+
+// Authenticate verifies the password for a username; failures return ErrInvalidCredentials (avoids user enumeration).
+func (h *Hub) Authenticate(username, password string) (*Account, error) {
+	key := strings.ToLower(strings.TrimSpace(username))
+	h.mu.RLock()
+	id, ok := h.usernames[key]
+	var acc *Account
+	if ok {
+		acc = h.accounts[id]
+	}
+	h.mu.RUnlock()
+	if acc == nil || acc.PasswordHash == "" || !verifyPassword(password, acc.PasswordHash) {
+		return nil, ErrInvalidCredentials
+	}
+	return acc, nil
+}
+
+// ListDevicesByAccount returns the devices belonging to an account.
+func (h *Hub) ListDevicesByAccount(accountID string) []*Device {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]*Device, 0, 4)
+	for _, d := range h.devices {
+		if d.AccountID == accountID {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// IsOnline reports whether the device currently has an active subscription.
+func (h *Hub) IsOnline(deviceID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.subs[deviceID]
+	return ok
+}
+
 // ResolveDeviceByToken returns the device matching `token`, using token cache
 // to avoid bcrypt on every hit.
 func (h *Hub) ResolveDeviceByToken(token string) (*Device, error) {

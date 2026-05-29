@@ -64,3 +64,7 @@ func (c *tokenCache) invalidate(deviceID string) {
 		delete(c.r, deviceID)
 	}
 }
+
+// hashPassword / verifyPassword are semantic aliases for bcrypt in the password context.
+func hashPassword(password string) (string, error) { return hashToken(password) }
+func verifyPassword(password, hash string) bool     { return verifyToken(password, hash) }

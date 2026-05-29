@@ -77,4 +77,18 @@ final class OutputRouterTests: XCTestCase {
                                   override: .auto)
         XCTAssertEqual((sink as? RemoteHTTPSink)?.target.id, "win")
     }
+
+    func testRemoteOverrideSinkCarriesLocalFallback() {
+        let router = makeRouter(targets: [winTarget])
+        let sink = router.resolve(frontmostBundleId: nil, override: .remote("win"))
+        XCTAssertTrue((sink as? RemoteHTTPSink)?.fallback as? LocalTextSink === local,
+                      ".remote 路径构造的远程 sink 应带本机 fallback(同一实例)")
+    }
+
+    func testAutoRemoteSinkCarriesLocalFallback() {
+        let router = makeRouter(targets: [winTarget])
+        let sink = router.resolve(frontmostBundleId: "com.microsoft.rdc.macos", override: .auto)
+        XCTAssertTrue((sink as? RemoteHTTPSink)?.fallback as? LocalTextSink === local,
+                      ".auto 路径构造的远程 sink 应带本机 fallback(同一实例)")
+    }
 }

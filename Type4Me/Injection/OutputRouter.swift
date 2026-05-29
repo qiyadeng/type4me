@@ -33,14 +33,14 @@ final class OutputRouter: @unchecked Sendable {
             return localSink
         case .remote(let id):
             if let t = targets.first(where: { $0.id == id && $0.enabled }) {
-                return RemoteHTTPSink(target: t)
+                return RemoteHTTPSink(target: t, fallback: localSink)
             }
             return localSink
         case .auto:
             guard let bundleId = frontmostBundleId else { return localSink }
             for t in targets where t.enabled {
                 if t.matchBundleIds.contains(bundleId) {
-                    return RemoteHTTPSink(target: t)
+                    return RemoteHTTPSink(target: t, fallback: localSink)
                 }
             }
             return localSink

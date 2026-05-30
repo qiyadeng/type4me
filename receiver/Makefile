@@ -1,7 +1,7 @@
 .PHONY: build build-darwin build-darwin-arm64 build-darwin-amd64 build-windows build-windows-gui test clean
 
 VERSION ?= 0.1.0
-RELAY_URL ?= https://relay.example.com
+RELAY_URL ?= https://oc10.gouruicm.com
 DIST := dist
 
 build: build-darwin

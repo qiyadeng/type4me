@@ -200,3 +200,46 @@ sudo rm -rf /usr/local/bin/type4me-relay /etc/type4me-relay /var/lib/type4me-rel
 sudo userdel type4me
 # 从 Caddyfile 删 relay.your-domain.com 那段,reload Caddy
 ```
+
+---
+
+## 十四、生产实例(实际部署)
+
+> **凭据不入库**:SSH 连接信息、`TYPE4ME_RELAY_ADMIN_TOKEN`、`TYPE4ME_RELAY_SESSION_KEY`、邀请码等敏感信息**不提交到本仓库**,由维护者私存(本地 agent 记忆 `relay-production-deploy`)。本节只记录运行手册与非敏感坐标。
+
+- **公网地址**:`https://oc10.gouruicm.com`(`/healthz` 应返回 `{"ok":true,...}`)。前置 TLS/反代层**不是** Caddy,已存在并把 443 → 本机 `9010`,升级时不用动。
+- **relay 绑定**:`0.0.0.0:9010`(`TYPE4ME_RELAY_BIND`)。
+- **systemd**:`type4me-relay.service`(`User=type4me`,enabled),`EnvironmentFile=/etc/type4me-relay/env`,`ExecStart=/usr/local/bin/type4me-relay serve`。
+- **路径**:二进制 `/usr/local/bin/type4me-relay`;env `/etc/type4me-relay/env`(root:type4me 0640);状态 `/var/lib/type4me-relay/state.json`(type4me:type4me 0600)。
+- **客户端固化地址**:Mac `Type4Me/Services/RelayConfig.swift`、Windows `receiver/cmd/type4me-receiver-gui/build.go`(及 `receiver/Makefile` 的 `RELAY_URL`)均指向 `https://oc10.gouruicm.com`。
+
+### 升级 / 重新部署(就地换二进制,保留账号数据)
+
+账号系统(`/v1/auth/*`、会话鉴权的 `/v1/devices`)于 2026-05-30 上线。`state.json` 由 v1 平滑升到 v2,旧的 admin 建账号/设备继续可用。
+
+```bash
+# 1. 本地构建 linux 二进制
+make -C relay build-linux
+# 2. 上传(端口/用户见私存记录)
+scp -P <port> relay/dist/type4me-relay-linux-amd64 <user>@<host>:/tmp/type4me-relay-new
+# 3. 服务器上(sudo):校验 sha → 备份 → 安装 → 重启
+ssh -p <port> <user>@<host>
+sha256sum /tmp/type4me-relay-new          # 与本地 shasum -a 256 比对一致
+DATE=$(date +%Y%m%d-%H%M%S)
+sudo cp -a /usr/local/bin/type4me-relay /usr/local/bin/type4me-relay.bak-$DATE
+sudo cp -a /var/lib/type4me-relay/state.json /var/lib/type4me-relay/state.json.bak-$DATE
+sudo install -m 0755 -o root -g root /tmp/type4me-relay-new /usr/local/bin/type4me-relay
+sudo systemctl restart type4me-relay
+# 4. 验证(本地或服务器)
+curl https://oc10.gouruicm.com/healthz
+curl -X POST https://oc10.gouruicm.com/v1/auth/login -H 'Content-Type: application/json' -d '{"username":"x","password":"y"}'   # 期望 401 invalid_credentials(旧版会 404)
+```
+
+首次启用账号层时,需在 `/etc/type4me-relay/env` **追加**(不要覆盖已有行):
+
+```
+TYPE4ME_RELAY_SESSION_KEY=<openssl rand -base64 48 | tr -dc A-Za-z0-9 | head -c 64>   # 勿轻易更换:换了所有已登录会话失效(device token 不受影响)
+TYPE4ME_RELAY_INVITE_CODES=<逗号分隔的邀请码>                                          # 客户端注册账号时填;空则关闭注册
+```
+
+回滚:`sudo install -m0755 /usr/local/bin/type4me-relay.bak-<DATE> /usr/local/bin/type4me-relay && sudo systemctl restart type4me-relay`。

@@ -6,5 +6,5 @@ package main
 //   go build -tags gui -ldflags "-X main.defaultRelayURL=https://your-relay"
 var (
 	version         = "dev"
-	defaultRelayURL = "https://relay.example.com"
+	defaultRelayURL = "https://oc10.gouruicm.com"
 )

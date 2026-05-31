@@ -22,6 +22,32 @@
 - **历史记录**：存储所有历史识别记录，包括原始文本和处理后文本，支持导出CSV；
 - **配套Skill**：真正做到100%准确率，打造只属于你的输入法，[点这里安装Skill](https://github.com/joewongjc/type4me-vocab-skill)后跟你的agent说"Qwen3.5 不要识别成 Queen 3.5"，他就能自动帮你管理热词和映射词，同类错误不再犯 
 
+## 🆕 本 Fork 新增:远程语音输入(Remote Voice Input)
+
+> 本仓库是 [joewongjc/type4me](https://github.com/joewongjc/type4me) 的 **Fork**。在原版全部能力之上,新增了**远程语音输入**:在 Mac 上说话,转写文本通过你**自建的中继(relay)**实时注入到**另一台机器(如 Windows)**的当前输入框。配合 ToDesk / RDP 等远程桌面使用尤其顺手——**本机说话、远程出字**,且不抢远程的键盘热键。
+
+**解决的场景**:你人在 Mac 前,实际操作的是一台远程 Windows,希望语音转写的文字直接进到那台 Windows 的输入框,而不是本机。
+
+**怎么用(三步)**:
+1. **自建中继**:在一台有公网域名的 Linux VPS 上部署 relay(开源、自托管、单文件二进制,带账号系统),见 [部署指南](docs/relay-deployment.md)。
+2. **接收端(如 Windows)**:运行带登录界面的 `type4me-receiver` GUI,用账号登录即**自动登记本机为设备**并开始接收,常驻系统托盘。
+3. **发送端(Mac)**:在 Type4Me「**偏好设置 → 远程**」用**同一账号**登录,在「**激活目标**」里选中那台远程设备,之后说话文字就发往该机。
+
+凭据(会话 / 设备 token)存进系统钥匙串;relay 地址、device id/token 全自动,用户只需填**用户名 / 密码 / 邀请码**并**选目标设备**。LAN 直连(同局域网、无需中继的模式)仍保留给高级用户。
+
+<p align="center">
+  <img src="docs/images/remote-settings.png" width="760" alt="Mac 远程设置:账号登录 / 激活目标 / 设备状态" /><br/>
+  <sub>Mac · 偏好设置 → 远程(账号登录、激活目标选择、设备在线状态)</sub>
+</p>
+<p align="center">
+  <img src="docs/images/remote-receiver-login.png" width="300" alt="Windows 接收端登录界面" /><br/>
+  <sub>接收端(Windows)· 账号登录界面</sub>
+</p>
+
+**相关文档**:[整体设计](docs/superpowers/specs/2026-05-29-account-system-design.md) · [Relay 部署指南](docs/relay-deployment.md)。relay / receiver 源码在仓库的 [`relay/`](relay/) 与 [`receiver/`](receiver/)(Go)。
+
+---
+
 ## 立即体验
 
 **方式一：直接下载DMG（推荐）**
@@ -169,6 +195,32 @@ ASR Provider 架构设计为可插拔：实现 `ASRProviderConfig`（定义凭�
 - **Vocabulary Management**: Two modes: hotwords and snippet replacements. Hotwords improve ASR accuracy for proper nouns; snippets enable personalized substitutions (e.g., "Web coding" -> "Vibe Coding", "my email" -> xxx@gmail.com);
 - **History**: Stores all recognition records including raw and processed text, with CSV export;
 - **Companion Skill**: Achieve 100% recognition accuracy. [Install the Skill](https://github.com/joewongjc/type4me-vocab-skill) and tell your agent "Don't recognize Qwen3.5 as Queen 3.5" to automatically manage hotwords and snippets. Same mistakes won't happen again.
+
+## 🆕 Added in this fork: Remote Voice Input
+
+> This repo is a **fork** of [joewongjc/type4me](https://github.com/joewongjc/type4me). On top of everything upstream, it adds **remote voice input**: speak on your Mac and have the transcribed text injected into the focused field of **another machine (e.g. Windows)** in real time, through a **self-hosted relay**. Great with remote-desktop tools (ToDesk / RDP) — you talk locally, text lands on the remote, without stealing the remote's keyboard shortcuts.
+
+**The scenario it solves**: you sit at a Mac but actually operate a remote Windows box, and you want the voice-transcribed text to go straight into that Windows app instead of your Mac.
+
+**Three steps**:
+1. **Self-host the relay** — deploy the open-source, single-binary relay (with an account system) on a Linux VPS with a domain. See the [deployment guide](docs/relay-deployment.md).
+2. **Receiver (e.g. Windows)** — run the `type4me-receiver` GUI (with a login window); logging in **auto-registers this machine as a device** and starts receiving, living in the system tray.
+3. **Sender (Mac)** — in Type4Me **Settings → Remote**, log in with the **same account** and pick the target device under **"Active Output"**. From then on, your speech is sent to that machine.
+
+Credentials (session / device tokens) are stored in the system keychain; the relay URL and device id/token are fully automatic — you only enter **username / password / invite code** and pick a target. LAN-direct mode (same network, no relay) remains available for advanced users.
+
+<p align="center">
+  <img src="docs/images/remote-settings.png" width="760" alt="Mac Remote settings: account login / active output / device status" /><br/>
+  <sub>Mac · Settings → Remote (account login, active-output selection, device online status)</sub>
+</p>
+<p align="center">
+  <img src="docs/images/remote-receiver-login.png" width="300" alt="Windows receiver login window" /><br/>
+  <sub>Receiver (Windows) · account login window</sub>
+</p>
+
+**Docs**: [overall design](docs/superpowers/specs/2026-05-29-account-system-design.md) · [relay deployment guide](docs/relay-deployment.md). Relay / receiver source live under [`relay/`](relay/) and [`receiver/`](receiver/) (Go).
+
+---
 
 ## Get Started
 

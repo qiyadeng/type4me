@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	_ "embed"
+	"image/color"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,8 +14,10 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/qiyadeng/type4me/receiver/internal/appflow"
@@ -22,6 +26,9 @@ import (
 	"github.com/qiyadeng/type4me/receiver/internal/relay"
 	"github.com/qiyadeng/type4me/receiver/internal/relayauth"
 )
+
+//go:embed assets/icon.png
+var iconBytes []byte
 
 func main() {
 	cfgPath := configPath()
@@ -33,144 +40,323 @@ func main() {
 	}
 
 	a := app.NewWithID("com.type4me.receiver")
-	win := a.NewWindow("Type4Me 登录")
+	a.Settings().SetTheme(type4meTheme{})
+	icon := fyne.NewStaticResource("type4me.png", iconBytes)
+	a.SetIcon(icon)
 
-	statusItem := fyne.NewMenuItem("未连接", nil)
-	// trayMenu is captured after creation so setStatus can call Refresh on it.
-	var trayMenu *fyne.Menu
-	setStatus := func(text string) {
-		fyne.Do(func() {
-			statusItem.Label = text
-			if trayMenu != nil {
-				trayMenu.Refresh()
-			}
-		})
-	}
+	win := a.NewWindow("Type4Me")
+	win.SetIcon(icon)
+	win.Resize(fyne.NewSize(400, 520))
+	win.CenterOnScreen()
 
-	inj := inject.NewPlatform()
-	var (
-		subMu     sync.Mutex
-		cancelSub context.CancelFunc
-	)
-	stopSub := func() {
-		subMu.Lock()
-		if cancelSub != nil {
-			cancelSub()
-			cancelSub = nil
-		}
-		subMu.Unlock()
-	}
-
-	startSub := func(c *config.Config) {
-		stopSub() // cancel any previously-running subscriber before starting a new one
-		ctx, cancel := context.WithCancel(context.Background())
-		subMu.Lock()
-		cancelSub = cancel
-		subMu.Unlock()
-		sub := &relay.Subscriber{
-			RelayURL:    c.RelayURL,
-			DeviceToken: c.DeviceToken,
-			Injector:    inj,
-			HTTPClient:  &http.Client{Timeout: 0}, // SSE long-poll
-			OnStatus: func(st relay.Status, _ error) {
-				switch st {
-				case relay.StatusConnecting:
-					setStatus("连接中…")
-				case relay.StatusConnected:
-					setStatus("已连接")
-				case relay.StatusReconnecting:
-					setStatus("重连中…")
-				case relay.StatusError:
-					setStatus("连接失败")
-				}
-			},
-		}
-		go func() { _ = sub.Run(ctx) }()
-	}
-
-	ctrl := &appflow.Controller{
+	ui := &gui{app: a, win: win, icon: icon}
+	ui.inj = inject.NewPlatform()
+	ui.ctrl = &appflow.Controller{
 		Cfg:      cfg,
 		CfgPath:  cfgPath,
 		Auth:     &relayauth.Client{RelayURL: defaultRelayURL},
 		Hostname: hostname(),
 		RelayURL: defaultRelayURL,
-		StartSub: startSub,
+		StartSub: ui.startSub,
 	}
 
-	buildLoginForm(win, ctrl)
+	ui.buildTray()
+	win.SetCloseIntercept(func() { win.Hide() }) // close button → live in tray
 
-	if desk, ok := a.(desktop.App); ok {
-		logoutItem := fyne.NewMenuItem("退出登录", func() {
-			stopSub()
-			_ = ctrl.Logout()
-			setStatus("未连接")
-			win.Show()
-		})
-		quitItem := fyne.NewMenuItem("退出", func() { a.Quit() })
-		trayMenu = fyne.NewMenu("Type4Me", statusItem, logoutItem, quitItem)
-		desk.SetSystemTrayMenu(trayMenu)
-	}
-
-	if ctrl.ResumeIfConfigured() {
-		win.Hide() // already configured: live in the tray
+	if ui.ctrl.ResumeIfConfigured() {
+		ui.showStatus()
+		win.Hide() // already configured: resume in tray, reopen via tray "显示窗口"
 	} else {
+		ui.showLogin()
 		win.Show()
 	}
 	a.Run()
 }
 
-// buildLoginForm wires the username/password/(invite) form to the controller.
-func buildLoginForm(win fyne.Window, ctrl *appflow.Controller) {
+// gui holds the shared UI/runtime state for the receiver window + tray.
+type gui struct {
+	app  fyne.App
+	win  fyne.Window
+	icon fyne.Resource
+	inj  inject.Injector
+	ctrl *appflow.Controller
+
+	subMu     sync.Mutex
+	cancelSub context.CancelFunc
+
+	status     relay.Status
+	statusItem *fyne.MenuItem
+	trayMenu   *fyne.Menu
+
+	// live status-view widgets; non-nil only while the status view is shown.
+	stMu       sync.Mutex
+	statusDot  *canvas.Text
+	statusText *canvas.Text
+}
+
+// ---- subscriber lifecycle ----
+
+func (g *gui) startSub(c *config.Config) {
+	g.stopSub()
+	ctx, cancel := context.WithCancel(context.Background())
+	g.subMu.Lock()
+	g.cancelSub = cancel
+	g.subMu.Unlock()
+	sub := &relay.Subscriber{
+		RelayURL:    c.RelayURL,
+		DeviceToken: c.DeviceToken,
+		Injector:    g.inj,
+		HTTPClient:  &http.Client{Timeout: 0}, // SSE long-poll
+		OnStatus:    func(st relay.Status, _ error) { g.setStatus(st) },
+	}
+	go func() { _ = sub.Run(ctx) }()
+}
+
+func (g *gui) stopSub() {
+	g.subMu.Lock()
+	if g.cancelSub != nil {
+		g.cancelSub()
+		g.cancelSub = nil
+	}
+	g.subMu.Unlock()
+}
+
+// ---- status text/color mapping ----
+
+func statusLabel(st relay.Status) (string, color.Color) {
+	switch st {
+	case relay.StatusConnecting:
+		return "连接中…", color.NRGBA{0xC7, 0x8C, 0x26, 0xFF}
+	case relay.StatusConnected:
+		return "已连接", color.NRGBA{0x4C, 0x9E, 0x59, 0xFF}
+	case relay.StatusReconnecting:
+		return "重连中…", color.NRGBA{0xC7, 0x8C, 0x26, 0xFF}
+	case relay.StatusError:
+		return "连接失败", color.NRGBA{0xCC, 0x47, 0x38, 0xFF}
+	default:
+		return "未连接", color.NRGBA{0x9A, 0x95, 0x8C, 0xFF}
+	}
+}
+
+func (g *gui) setStatus(st relay.Status) {
+	g.status = st
+	text, col := statusLabel(st)
+	fyne.Do(func() {
+		if g.statusItem != nil {
+			g.statusItem.Label = "状态:" + text
+			if g.trayMenu != nil {
+				g.trayMenu.Refresh()
+			}
+		}
+		g.stMu.Lock()
+		if g.statusText != nil {
+			g.statusText.Text = text
+			g.statusText.Color = col
+			g.statusText.Refresh()
+		}
+		if g.statusDot != nil {
+			g.statusDot.Color = col
+			g.statusDot.Refresh()
+		}
+		g.stMu.Unlock()
+	})
+}
+
+// ---- tray ----
+
+func (g *gui) buildTray() {
+	desk, ok := g.app.(desktop.App)
+	if !ok {
+		return
+	}
+	text, _ := statusLabel(g.status)
+	g.statusItem = fyne.NewMenuItem("状态:"+text, nil)
+	g.statusItem.Disabled = true
+
+	openItem := fyne.NewMenuItem("显示窗口", func() {
+		g.win.Show()
+		g.win.RequestFocus()
+	})
+	logoutItem := fyne.NewMenuItem("退出登录", func() { g.logout() })
+	quitItem := fyne.NewMenuItem("退出", func() { g.stopSub(); g.app.Quit() })
+
+	g.trayMenu = fyne.NewMenu("Type4Me", g.statusItem, fyne.NewMenuItemSeparator(),
+		openItem, logoutItem, quitItem)
+	desk.SetSystemTrayMenu(g.trayMenu)
+}
+
+func (g *gui) logout() {
+	g.stopSub()
+	_ = g.ctrl.Logout()
+	g.setStatus("")
+	g.showLogin()
+	g.win.Show()
+	g.win.RequestFocus()
+}
+
+// ---- shared header ----
+
+func (g *gui) header(subtitle string) fyne.CanvasObject {
+	img := canvas.NewImageFromResource(g.icon)
+	img.FillMode = canvas.ImageFillContain
+	img.SetMinSize(fyne.NewSize(64, 64))
+
+	title := canvas.NewText("Type4Me", color.NRGBA{0x1F, 0x1D, 0x1B, 0xFF})
+	title.TextSize = 22
+	title.TextStyle = fyne.TextStyle{Bold: true}
+	title.Alignment = fyne.TextAlignCenter
+
+	sub := canvas.NewText(subtitle, color.NRGBA{0x6B, 0x66, 0x5D, 0xFF})
+	sub.TextSize = 13
+	sub.Alignment = fyne.TextAlignCenter
+
+	return container.NewVBox(
+		container.NewCenter(img),
+		title,
+		sub,
+	)
+}
+
+func fieldLabel(text string) *widget.Label {
+	return widget.NewLabelWithStyle(text, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+}
+
+// ---- login view ----
+
+func (g *gui) showLogin() {
+	g.stMu.Lock()
+	g.statusText, g.statusDot = nil, nil
+	g.stMu.Unlock()
+
 	username := widget.NewEntry()
-	username.SetPlaceHolder("用户名")
+	username.SetPlaceHolder("你的用户名")
 	password := widget.NewPasswordEntry()
-	password.SetPlaceHolder("密码")
+	password.SetPlaceHolder("至少 8 位")
 	invite := widget.NewEntry()
-	invite.SetPlaceHolder("邀请码(仅注册时需要)")
+	invite.SetPlaceHolder("注册才需要")
+
+	inviteLabel := fieldLabel("邀请码")
+	inviteLabel.Hide()
 	invite.Hide()
 
-	registerMode := false
-	errLabel := widget.NewLabel("")
-	errLabel.Wrapping = fyne.TextWrapWord
+	errText := canvas.NewText("", color.NRGBA{0xCC, 0x47, 0x38, 0xFF})
+	errText.TextSize = 13
+	progress := widget.NewProgressBarInfinite()
+	progress.Hide()
 
 	submit := widget.NewButton("登录", nil)
+	submit.Importance = widget.HighImportance
 	toggle := widget.NewButton("没有账号?去注册", nil)
+	toggle.Importance = widget.LowImportance
 
+	registerMode := false
 	applyMode := func() {
 		if registerMode {
+			inviteLabel.Show()
 			invite.Show()
 			submit.SetText("注册")
 			toggle.SetText("已有账号?去登录")
 		} else {
+			inviteLabel.Hide()
 			invite.Hide()
 			submit.SetText("登录")
 			toggle.SetText("没有账号?去注册")
 		}
 	}
-	toggle.OnTapped = func() {
-		registerMode = !registerMode
-		applyMode()
-	}
+	toggle.OnTapped = func() { registerMode = !registerMode; applyMode() }
+
 	submit.OnTapped = func() {
-		errLabel.SetText("")
+		errText.Text = ""
+		errText.Refresh()
 		submit.Disable()
+		toggle.Disable()
+		progress.Show()
+		reg := registerMode
 		go func() {
-			err := ctrl.LoginAndStart(username.Text, password.Text, invite.Text, registerMode)
+			err := g.ctrl.LoginAndStart(username.Text, password.Text, invite.Text, reg)
 			fyne.Do(func() {
+				progress.Hide()
 				submit.Enable()
+				toggle.Enable()
 				if err != nil {
-					errLabel.SetText(err.Error())
+					errText.Text = err.Error()
+					errText.Color = color.NRGBA{0xCC, 0x47, 0x38, 0xFF}
+					errText.Refresh()
 					return
 				}
-				win.Hide()
+				g.showStatus() // logged in → show the status panel
 			})
 		}()
 	}
 	applyMode()
 
-	win.SetContent(container.NewVBox(username, password, invite, submit, toggle, errLabel))
-	win.Resize(fyne.NewSize(320, 240))
-	win.SetCloseIntercept(func() { win.Hide() }) // closing the window keeps the tray alive
+	form := container.NewVBox(
+		fieldLabel("用户名"), username,
+		fieldLabel("密码"), password,
+		inviteLabel, invite,
+		errText,
+		submit,
+		progress,
+		container.NewCenter(toggle),
+	)
+	g.win.SetTitle("Type4Me 登录")
+	g.win.SetContent(container.NewBorder(
+		g.header("登录以连接你的设备"), nil, nil, nil,
+		container.New(layout.NewCustomPaddedLayout(12, 12, 18, 18), form),
+	))
+}
+
+// ---- status (logged-in) view ----
+
+func (g *gui) showStatus() {
+	text, col := statusLabel(g.status)
+	dot := canvas.NewText("●", col)
+	dot.TextSize = 16
+	st := canvas.NewText(text, col)
+	st.TextSize = 16
+	st.TextStyle = fyne.TextStyle{Bold: true}
+
+	g.stMu.Lock()
+	g.statusDot, g.statusText = dot, st
+	g.stMu.Unlock()
+
+	statusRow := container.NewHBox(dot, st)
+
+	infoCard := container.NewVBox(
+		infoRow("设备", hostname()),
+		infoRow("服务器", defaultRelayURL),
+	)
+
+	hint := canvas.NewText("转写文本会注入到本机当前焦点窗口。", color.NRGBA{0x6B, 0x66, 0x5D, 0xFF})
+	hint.TextSize = 12
+
+	logout := widget.NewButton("退出登录", func() { g.logout() })
+	logout.Importance = widget.DangerImportance
+	hide := widget.NewButton("隐藏到托盘", func() { g.win.Hide() })
+
+	body := container.NewVBox(
+		container.NewCenter(statusRow),
+		widget.NewSeparator(),
+		infoCard,
+		hint,
+		layout.NewSpacer(),
+		container.NewGridWithColumns(2, hide, logout),
+	)
+
+	g.win.SetTitle("Type4Me")
+	g.win.SetContent(container.NewBorder(
+		g.header("已登录"), nil, nil, nil,
+		container.New(layout.NewCustomPaddedLayout(12, 12, 18, 18), body),
+	))
+}
+
+func infoRow(label, value string) fyne.CanvasObject {
+	l := canvas.NewText(label, color.NRGBA{0x6B, 0x66, 0x5D, 0xFF})
+	l.TextSize = 13
+	v := canvas.NewText(value, color.NRGBA{0x1F, 0x1D, 0x1B, 0xFF})
+	v.TextSize = 13
+	v.Alignment = fyne.TextAlignTrailing
+	return container.NewBorder(nil, nil, l, nil, container.NewHBox(layout.NewSpacer(), v))
 }
 
 func hostname() string {
